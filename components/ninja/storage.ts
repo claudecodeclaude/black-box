@@ -13,11 +13,13 @@ export interface Attempt {
 }
 
 export interface Shape {
-  type: "line" | "arrow" | "circle";
+  type: "line" | "arrow" | "circle" | "angle";
   x1: number;
   y1: number;
   x2: number;
   y2: number;
+  x3?: number;
+  y3?: number;
 }
 
 function openDB(): Promise<IDBDatabase> {

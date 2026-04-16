@@ -14,7 +14,6 @@ import {
 } from "@/components/ninja/storage";
 
 type View = "upload" | "camera" | "player";
-type Tool = "line" | "arrow" | "circle";
 
 function getBestMimeType() {
   const types = ["video/webm;codecs=vp9", "video/webm", "video/mp4"];
@@ -25,9 +24,7 @@ export default function NinjaPage() {
   const [view, setView] = useState<View>("upload");
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [playing, setPlaying] = useState(false);
-  const [activeTool, setActiveTool] = useState<Tool>("line");
   const [saveLabel, setSaveLabel] = useState("Save Attempt");
-  const [toolsDisabled, setToolsDisabled] = useState(false);
 
   // Camera / recording
   const [isRecording, setIsRecording] = useState(false);
@@ -304,13 +301,11 @@ export default function NinjaPage() {
 
   function handleVideoPlay() {
     setPlaying(true);
-    setToolsDisabled(true);
     annotationRef.current?.disable();
   }
 
   function handleVideoPause() {
     setPlaying(false);
-    setToolsDisabled(false);
     annotationRef.current?.enable();
     annotationRef.current?.resize();
   }
@@ -333,11 +328,6 @@ export default function NinjaPage() {
   }
 
   function handleSpeed(rate: number) { videoRef.current!.playbackRate = rate; }
-
-  function handleToolSelect(tool: Tool) {
-    setActiveTool(tool);
-    annotationRef.current?.setTool(tool);
-  }
 
   async function openAttempt(id: number) {
     const attempt = await getAttempt(id);
@@ -504,12 +494,7 @@ export default function NinjaPage() {
         </div>
 
         {/* Annotation tools */}
-        <div style={{ display: "flex", gap: 4, padding: "0 8px 4px", opacity: toolsDisabled ? 0.25 : 1, pointerEvents: toolsDisabled ? "none" : "auto" }}>
-          {(["line", "arrow", "circle"] as Tool[]).map((tool) => (
-            <button key={tool} onClick={() => handleToolSelect(tool)} style={{ ...toolBtnStyle, borderColor: activeTool === tool ? "#ff3333" : "#333", background: activeTool === tool ? "#301515" : "#222" }}>
-              {tool.charAt(0).toUpperCase() + tool.slice(1)}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 4, padding: "0 8px 4px" }}>
           <button onClick={() => annotationRef.current?.undo()} style={toolBtnStyle}>Undo</button>
           <button onClick={() => annotationRef.current?.clear()} style={toolBtnStyle}>Clear</button>
         </div>

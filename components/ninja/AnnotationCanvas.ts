@@ -2,22 +2,20 @@ import type { Shape } from "./storage";
 
 export type PinchCallback = (zoom: number, panX: number, panY: number) => void;
 
+interface Point { x: number; y: number }
+
 export class AnnotationCanvas {
   canvas: HTMLCanvasElement;
   video: HTMLVideoElement;
   ctx: CanvasRenderingContext2D;
   shapes: Shape[];
-  currentTool: "line" | "arrow" | "circle";
   drawing: boolean;
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
   enabled: boolean;
   multiTouch: boolean;
   color: string;
   lineWidth: number;
   onPinch: PinchCallback | null;
+  private _strokePoints: Point[];
   private _pinch: { active: boolean; initialDist: number; initialZoom: number; initialPanX: number; initialPanY: number; centerX: number; centerY: number };
   private _zoom: number;
   private _panX: number;
@@ -28,17 +26,13 @@ export class AnnotationCanvas {
     this.video = video;
     this.ctx = canvas.getContext("2d")!;
     this.shapes = [];
-    this.currentTool = "line";
     this.drawing = false;
-    this.startX = 0;
-    this.startY = 0;
-    this.currentX = 0;
-    this.currentY = 0;
     this.enabled = false;
     this.multiTouch = false;
     this.color = "#ff2222";
     this.lineWidth = 3;
     this.onPinch = null;
+    this._strokePoints = [];
     this._pinch = { active: false, initialDist: 0, initialZoom: 1, initialPanX: 0, initialPanY: 0, centerX: 0, centerY: 0 };
     this._zoom = 1;
     this._panX = 0;
@@ -54,6 +48,8 @@ export class AnnotationCanvas {
     canvas.addEventListener("touchend", (e) => this._onTouchEnd(e));
   }
 
+  // ── Touch / Pinch ──
+
   private _touchDist(touches: TouchList) {
     const dx = touches[0].clientX - touches[1].clientX;
     const dy = touches[0].clientY - touches[1].clientY;
@@ -64,7 +60,7 @@ export class AnnotationCanvas {
     if (e.touches.length === 2) {
       e.preventDefault();
       this.multiTouch = true;
-      if (this.drawing) { this.drawing = false; this.redraw(); }
+      if (this.drawing) { this.drawing = false; this._strokePoints = []; this.redraw(); }
       const rect = this.canvas.getBoundingClientRect();
       const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
       const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
@@ -133,7 +129,9 @@ export class AnnotationCanvas {
     this._panY = panY;
   }
 
-  _getPos(e: PointerEvent) {
+  // ── Pointer / Drawing ──
+
+  private _getPos(e: PointerEvent): Point {
     const rect = this.canvas.getBoundingClientRect();
     return {
       x: (e.clientX - rect.left) / rect.width,
@@ -146,10 +144,7 @@ export class AnnotationCanvas {
     e.preventDefault();
     this.drawing = true;
     const pos = this._getPos(e);
-    this.startX = pos.x;
-    this.startY = pos.y;
-    this.currentX = pos.x;
-    this.currentY = pos.y;
+    this._strokePoints = [pos];
     this.canvas.setPointerCapture(e.pointerId);
   }
 
@@ -157,36 +152,186 @@ export class AnnotationCanvas {
     if (!this.drawing || this.multiTouch) return;
     e.preventDefault();
     const pos = this._getPos(e);
-    this.currentX = pos.x;
-    this.currentY = pos.y;
+    this._strokePoints.push(pos);
     this.redraw();
-    this._drawShape(this.ctx, {
-      type: this.currentTool,
-      x1: this.startX,
-      y1: this.startY,
-      x2: this.currentX,
-      y2: this.currentY,
-    });
+    this._drawFreehand();
   }
 
   _onUp(e: PointerEvent) {
     if (!this.drawing) return;
     this.drawing = false;
-    if (this.multiTouch) { this.redraw(); return; }
+    if (this.multiTouch) { this._strokePoints = []; this.redraw(); return; }
+
     const pos = this._getPos(e);
-    const dx = pos.x - this.startX;
-    const dy = pos.y - this.startY;
-    if (Math.sqrt(dx * dx + dy * dy) > 0.008) {
-      this.shapes.push({
-        type: this.currentTool,
-        x1: this.startX,
-        y1: this.startY,
-        x2: pos.x,
-        y2: pos.y,
-      });
-    }
+    this._strokePoints.push(pos);
+
+    const shape = this._recognize(this._strokePoints);
+    if (shape) this.shapes.push(shape);
+    this._strokePoints = [];
     this.redraw();
   }
+
+  // ── Freehand preview ──
+
+  private _drawFreehand() {
+    const pts = this._strokePoints;
+    if (pts.length < 2) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.width / dpr;
+    const h = this.canvas.height / dpr;
+    const ctx = this.ctx;
+
+    ctx.save();
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = this.lineWidth;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x * w, pts[0].y * h);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].x * w, pts[i].y * h);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // ── Shape Recognition ──
+
+  private _dist(a: Point, b: Point): number {
+    return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  }
+
+  private _pathLength(pts: Point[]): number {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += this._dist(pts[i], pts[i - 1]);
+    return len;
+  }
+
+  private _sample(pts: Point[], n: number): Point[] {
+    if (pts.length <= n) return pts.slice();
+    const total = this._pathLength(pts);
+    const step = total / (n - 1);
+    const out: Point[] = [pts[0]];
+    let acc = 0;
+    let j = 1;
+    for (let i = 1; i < n - 1; i++) {
+      const target = i * step;
+      while (j < pts.length) {
+        const seg = this._dist(pts[j - 1], pts[j]);
+        if (acc + seg >= target) {
+          const t = (target - acc) / seg;
+          out.push({ x: pts[j - 1].x + t * (pts[j].x - pts[j - 1].x), y: pts[j - 1].y + t * (pts[j].y - pts[j - 1].y) });
+          break;
+        }
+        acc += seg;
+        j++;
+      }
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  private _segmentStraightness(pts: Point[]): number {
+    if (pts.length < 2) return 1;
+    const direct = this._dist(pts[0], pts[pts.length - 1]);
+    const path = this._pathLength(pts);
+    return path > 0 ? direct / path : 1;
+  }
+
+  private _recognize(raw: Point[]): Shape | null {
+    if (raw.length < 3) return null;
+    const pathLen = this._pathLength(raw);
+    if (pathLen < 0.015) return null;
+
+    const first = raw[0];
+    const last = raw[raw.length - 1];
+    const closeDist = this._dist(first, last);
+
+    // ── Circle: closed loop ──
+    if (closeDist < pathLen * 0.3 && pathLen > 0.05) {
+      let cx = 0, cy = 0;
+      for (const p of raw) { cx += p.x; cy += p.y; }
+      cx /= raw.length;
+      cy /= raw.length;
+
+      let avgR = 0;
+      for (const p of raw) avgR += this._dist(p, { x: cx, y: cy });
+      avgR /= raw.length;
+
+      let variance = 0;
+      for (const p of raw) {
+        const r = this._dist(p, { x: cx, y: cy });
+        variance += (r - avgR) ** 2;
+      }
+      const stdDev = Math.sqrt(variance / raw.length);
+
+      if (stdDev / avgR < 0.35) {
+        return { type: "circle", x1: cx, y1: cy, x2: cx + avgR, y2: cy };
+      }
+    }
+
+    // ── Angle: V-shape with sharp bend ──
+    const sampled = this._sample(raw, 24);
+    if (sampled.length >= 7) {
+      let bestIdx = -1;
+      let bestAngle = Math.PI;
+
+      for (let i = 3; i < sampled.length - 3; i++) {
+        const a = sampled[i - 3];
+        const b = sampled[i];
+        const c = sampled[i + 3];
+        const ba = { x: a.x - b.x, y: a.y - b.y };
+        const bc = { x: c.x - b.x, y: c.y - b.y };
+        const dot = ba.x * bc.x + ba.y * bc.y;
+        const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
+        if (mag > 0.0001) {
+          const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
+          if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
+        }
+      }
+
+      // Sharp bend (< 140°) with both arms reasonably straight
+      if (bestAngle < Math.PI * 0.78 && bestIdx >= 3 && bestIdx <= sampled.length - 4) {
+        const arm1 = sampled.slice(0, bestIdx + 1);
+        const arm2 = sampled.slice(bestIdx);
+        if (this._segmentStraightness(arm1) > 0.85 && this._segmentStraightness(arm2) > 0.85) {
+          return {
+            type: "angle",
+            x1: sampled[0].x, y1: sampled[0].y,
+            x2: sampled[bestIdx].x, y2: sampled[bestIdx].y,
+            x3: sampled[sampled.length - 1].x, y3: sampled[sampled.length - 1].y,
+          };
+        }
+      }
+    }
+
+    // ── Straight-ish strokes: arrow vs line ──
+    const straightness = closeDist / pathLen;
+
+    // Check for arrow: straight main body with a hook/flick at the end
+    if (straightness > 0.5 && straightness < 0.92) {
+      // Find the point furthest from the start
+      let maxD = 0, tipIdx = 0;
+      for (let i = 0; i < raw.length; i++) {
+        const d = this._dist(raw[i], first);
+        if (d > maxD) { maxD = d; tipIdx = i; }
+      }
+      // If the tip is in the latter part of the stroke and the path to the tip is straight
+      if (tipIdx > raw.length * 0.5) {
+        const toTip = raw.slice(0, tipIdx + 1);
+        if (this._segmentStraightness(toTip) > 0.9) {
+          const tip = raw[tipIdx];
+          return { type: "arrow", x1: first.x, y1: first.y, x2: tip.x, y2: tip.y };
+        }
+      }
+    }
+
+    // ── Default: line ──
+    return { type: "line", x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+  }
+
+  // ── Rendering ──
 
   redraw() {
     const dpr = window.devicePixelRatio || 1;
@@ -231,35 +376,40 @@ export class AnnotationCanvas {
       ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
       ctx.stroke();
     } else if (shape.type === "circle") {
-      const rx = Math.abs(x2 - x1);
-      const ry = Math.abs(y2 - y1);
-      const r = Math.sqrt(rx * rx + ry * ry);
+      const r = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
       ctx.beginPath();
       ctx.arc(x1, y1, r, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (shape.type === "angle" && shape.x3 != null && shape.y3 != null) {
+      const x3 = shape.x3 * w;
+      const y3 = shape.y3 * h;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.lineTo(x3, y3);
+      ctx.stroke();
+      // Draw small arc at vertex to show the angle
+      const a1 = Math.atan2(y1 - y2, x1 - x2);
+      const a2 = Math.atan2(y3 - y2, x3 - x2);
+      ctx.beginPath();
+      ctx.arc(x2, y2, 16, Math.min(a1, a2), Math.max(a1, a2));
       ctx.stroke();
     }
   }
 
-  setTool(tool: "line" | "arrow" | "circle") { this.currentTool = tool; }
+  // ── Public API ──
 
-  // Called by the pinch handler to suppress drawing during zoom gestures
   setMultiTouch(active: boolean) {
     this.multiTouch = active;
     if (active && this.drawing) {
       this.drawing = false;
+      this._strokePoints = [];
       this.redraw();
     }
   }
 
-  enable() {
-    this.enabled = true;
-  }
-
-  disable() {
-    this.enabled = false;
-    this.drawing = false;
-  }
-
+  enable() { this.enabled = true; }
+  disable() { this.enabled = false; this.drawing = false; }
   undo() { this.shapes.pop(); this.redraw(); }
   clear() { this.shapes = []; this.redraw(); }
   getAnnotations(): Shape[] { return this.shapes.slice(); }
