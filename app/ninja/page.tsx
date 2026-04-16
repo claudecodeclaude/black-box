@@ -462,24 +462,21 @@ export default function NinjaPage() {
       </div>
 
       {/* ── Camera View ── */}
-      <div style={{ display: view === "camera" ? "flex" : "none", flexDirection: "column", height: "100dvh", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "6px 12px", gap: 8 }}>
-          <button onClick={stopCamera} style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 15, fontWeight: 600, padding: "6px 0", cursor: "pointer" }}>← Back</button>
-          <span style={{ fontSize: 15, fontWeight: 600 }}>{recordedBlob ? "Review" : "Camera"}</span>
+      <div style={{ display: view === "camera" ? "block" : "none", position: "fixed", inset: 0, background: "#000", zIndex: 50 }}>
+        <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: recordedBlob ? "none" : "block" }} />
+        <video ref={reviewVideoRef} playsInline controls style={{ width: "100%", height: "100%", objectFit: "contain", display: recordedBlob ? "block" : "none" }} />
+
+        {/* Fixed header */}
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, padding: "10px 16px", zIndex: 51 }}>
+          <button onClick={stopCamera} style={{ background: "rgba(0,0,0,0.5)", border: "none", color: "#fff", fontSize: 15, fontWeight: 600, padding: "8px 14px", borderRadius: 8, cursor: "pointer" }}>← Back</button>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, background: "#000", lineHeight: 0, overflow: "hidden", display: recordedBlob ? "none" : "block" }}>
-          <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        </div>
-        <div style={{ flex: 1, minHeight: 0, background: "#000", lineHeight: 0, overflow: "hidden", display: recordedBlob ? "block" : "none" }}>
-          <video ref={reviewVideoRef} playsInline controls style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
-        </div>
-
-        <div style={{ padding: "8px 12px" }}>
+        {/* Fixed bottom buttons */}
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px", zIndex: 51 }}>
           {!recordedBlob ? (
             !isRecording
               ? <button onClick={startRecording} style={{ ...uploadBtnStyle, background: "#cc2222" }}>Start Recording</button>
-              : <button onClick={stopRecording} style={{ ...uploadBtnStyle, background: "#555" }}>Stop Recording</button>
+              : <button onClick={stopRecording} style={{ ...uploadBtnStyle, background: "rgba(80,80,80,0.85)" }}>Stop Recording</button>
           ) : (
             <>
               <button onClick={useRecordedVideo} style={{ ...uploadBtnStyle, background: "#1a9a3a", marginBottom: 10 }}>Use This Video</button>
