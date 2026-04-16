@@ -332,16 +332,16 @@ export class AnnotationCanvas {
         }
       }
 
-      // Accept angles up to ~160° — covers wide body angles
-      if (bestAngle < Math.PI * 0.89 && bestIdx >= 0) {
+      // Accept angles up to ~175°
+      if (bestAngle < Math.PI * 0.97 && bestIdx >= 0) {
         const arm1 = sampled.slice(0, bestIdx + 1);
         const arm2 = sampled.slice(bestIdx);
         const arm1Len = this._pathLength(arm1);
         const arm2Len = this._pathLength(arm2);
-        const minArm = pathLen * 0.15;
+        const minArm = pathLen * 0.1;
 
         if (arm1Len > minArm && arm2Len > minArm &&
-            this._segmentStraightness(arm1) > 0.8 && this._segmentStraightness(arm2) > 0.8) {
+            this._segmentStraightness(arm1) > 0.7 && this._segmentStraightness(arm2) > 0.7) {
           return {
             type: "angle",
             x1: sampled[0].x, y1: sampled[0].y,
@@ -420,12 +420,40 @@ export class AnnotationCanvas {
       ctx.lineTo(x2, y2);
       ctx.lineTo(x3, y3);
       ctx.stroke();
-      // Draw small arc at vertex to show the angle
+
+      // Calculate the angle in degrees
       const a1 = Math.atan2(y1 - y2, x1 - x2);
       const a2 = Math.atan2(y3 - y2, x3 - x2);
-      ctx.beginPath();
-      ctx.arc(x2, y2, 16, Math.min(a1, a2), Math.max(a1, a2));
-      ctx.stroke();
+      let sweep = a2 - a1;
+      if (sweep < -Math.PI) sweep += Math.PI * 2;
+      if (sweep > Math.PI) sweep -= Math.PI * 2;
+      const degrees = Math.round(Math.abs(sweep) * (180 / Math.PI));
+
+      // Draw arc at vertex
+      const arcStart = Math.min(a1, a2);
+      const arcEnd = Math.max(a1, a2);
+      // Pick the smaller arc
+      const arcSweep = arcEnd - arcStart;
+      if (arcSweep < Math.PI) {
+        ctx.beginPath();
+        ctx.arc(x2, y2, 20, arcStart, arcEnd);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(x2, y2, 20, arcEnd, arcStart + Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Draw degree text
+      const midAngle = a1 + sweep / 2;
+      const textR = 36;
+      const tx = x2 + Math.cos(midAngle) * textR;
+      const ty = y2 + Math.sin(midAngle) * textR;
+      ctx.font = "bold 14px sans-serif";
+      ctx.fillStyle = this.color;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${degrees}°`, tx, ty);
     }
   }
 
