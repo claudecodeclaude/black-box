@@ -381,12 +381,18 @@ export default function NinjaPage() {
       createdAt: new Date().toISOString(),
     };
     if (currentIdRef.current) {
-      const existing = await getAttempt(currentIdRef.current);
-      if (existing?.createdAt) attempt.createdAt = existing.createdAt;
+      try {
+        const existing = await getAttempt(currentIdRef.current);
+        if (existing?.createdAt) attempt.createdAt = existing.createdAt;
+      } catch { /* ignore */ }
     }
-    await saveAttempt(attempt);
-    clearDraft();
-    // Auto-navigate back to upload view so user can see saved attempt and record next
+    try {
+      await saveAttempt(attempt);
+    } catch (err) {
+      console.error("Save failed:", err);
+      alert("Could not save — your device may be out of storage space.");
+    }
+    clearDraft().catch(() => {});
     goToUpload();
   }
 
