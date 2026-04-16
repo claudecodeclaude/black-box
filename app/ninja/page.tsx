@@ -27,6 +27,7 @@ export default function NinjaPage() {
   const [saveLabel, setSaveLabel] = useState("Save Attempt");
   const [shapeMenu, setShapeMenu] = useState<{ index: number; x: number; y: number; type: Shape["type"]; color: string } | null>(null);
   const [drawColor, setDrawColor] = useState<string>("#ff2222");
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
 
   // Camera / recording
   const [isRecording, setIsRecording] = useState(false);
@@ -340,7 +341,10 @@ export default function NinjaPage() {
     video.currentTime = Math.min(video.duration, video.currentTime + 1 / 30);
   }
 
-  function handleSpeed(rate: number) { videoRef.current!.playbackRate = rate; }
+  function handleSpeed(rate: number) {
+    videoRef.current!.playbackRate = rate;
+    setPlaybackRate(rate);
+  }
 
   async function openAttempt(id: number) {
     const attempt = await getAttempt(id);
@@ -497,12 +501,18 @@ export default function NinjaPage() {
 
         {/* Playback + speed controls */}
         <div style={{ display: "flex", gap: 4, padding: "6px 8px 4px" }}>
-          {[{ label: playing ? "⏸" : "▶", fn: handlePlay }, { label: "◀", fn: handleFrameBack }, { label: "▶", fn: handleFrameForward }].map((b, i) => (
+          {[{ label: playing ? "⏸" : "▶", fn: handlePlay }, { label: "|◀", fn: handleFrameBack }, { label: "▶|", fn: handleFrameForward }].map((b, i) => (
             <button key={i} onClick={b.fn} style={controlBtnStyle}>{b.label}</button>
           ))}
           <div style={{ width: 1, background: "#333", margin: "4px 2px" }} />
           {([0.25, 0.5, 1] as const).map((rate) => (
-            <button key={rate} onClick={() => handleSpeed(rate)} style={controlBtnStyle}>{rate}x</button>
+            <button
+              key={rate}
+              onClick={() => handleSpeed(rate)}
+              style={{ ...controlBtnStyle, border: playbackRate === rate ? "3px solid #fff" : controlBtnStyle.border }}
+            >
+              {rate}x
+            </button>
           ))}
         </div>
 
@@ -592,7 +602,7 @@ export default function NinjaPage() {
               }}
               style={{
                 display: "block", width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
-                background: "none", color: "#ff4444", border: "none", borderRadius: 6,
+                background: "none", color: "#eee", border: "none", borderRadius: 6,
                 textAlign: "left", cursor: "pointer", borderTop: "1px solid #333",
               }}
             >
