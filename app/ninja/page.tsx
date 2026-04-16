@@ -369,7 +369,7 @@ export default function NinjaPage() {
     const next = framesRef.current.slice();
     const matchIdx = editingIdx !== null && editingIdx < next.length
       ? editingIdx
-      : next.findIndex((f) => Math.abs(f.time - time) < 0.05);
+      : next.findIndex((f) => Math.abs(f.time - time) < 0.015);
     if (matchIdx >= 0) next[matchIdx] = { time, shapes, thumbnail };
     else next.push({ time, shapes, thumbnail });
     next.sort((a, b) => a.time - b.time);
@@ -385,7 +385,7 @@ export default function NinjaPage() {
     const ann = annotationRef.current;
     if (!ann || ann.shapes.length > 0) return;
     const time = video.currentTime;
-    const idx = framesRef.current.findIndex((f) => Math.abs(f.time - time) < 0.05);
+    const idx = framesRef.current.findIndex((f) => Math.abs(f.time - time) < 0.015);
     if (idx >= 0) {
       ann.setAnnotations(framesRef.current[idx].shapes);
       setCurrentFrameIdx(idx);
