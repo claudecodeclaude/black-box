@@ -19,7 +19,7 @@ export class AnnotationCanvas {
   onShapeTap: ShapeTapCallback | null;
   private _strokePoints: Point[];
   private _rawStrokes: Point[][];
-  private _pinch: { active: boolean; initialDist: number; initialZoom: number; initialPanX: number; initialPanY: number; centerX: number; centerY: number };
+  private _pinch: { active: boolean; initialDist: number; initialZoom: number; initialPanX: number; initialPanY: number; centerX: number; centerY: number; rectLeft: number; rectTop: number };
   private _zoom: number;
   private _panX: number;
   private _panY: number;
@@ -40,7 +40,7 @@ export class AnnotationCanvas {
     this.onShapeTap = null;
     this._strokePoints = [];
     this._rawStrokes = [];
-    this._pinch = { active: false, initialDist: 0, initialZoom: 1, initialPanX: 0, initialPanY: 0, centerX: 0, centerY: 0 };
+    this._pinch = { active: false, initialDist: 0, initialZoom: 1, initialPanX: 0, initialPanY: 0, centerX: 0, centerY: 0, rectLeft: 0, rectTop: 0 };
     this._zoom = 1;
     this._panX = 0;
     this._panY = 0;
@@ -81,11 +81,15 @@ export class AnnotationCanvas {
         initialPanY: this._panY,
         centerX: cx,
         centerY: cy,
+        rectLeft: rect.left,
+        rectTop: rect.top,
       };
     } else if (e.touches.length === 1 && this.enabled) {
       e.preventDefault();
     }
   }
+
+  private _pendingPinchRAF = 0;
 
   private _onTouchMove(e: TouchEvent) {
     if (e.touches.length === 2 && this._pinch.active) {
@@ -96,9 +100,9 @@ export class AnnotationCanvas {
       const H = container.clientHeight;
       const newZoom = Math.min(Math.max(p.initialZoom * this._touchDist(e.touches) / p.initialDist, 1), 5);
 
-      const rect = this.canvas.getBoundingClientRect();
-      const currentCX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-      const currentCY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      // Use cached rect from pinch start to avoid layout thrashing
+      const currentCX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - p.rectLeft;
+      const currentCY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - p.rectTop;
       const dragX = currentCX - p.centerX;
       const dragY = currentCY - p.centerY;
 
@@ -113,7 +117,14 @@ export class AnnotationCanvas {
       this._zoom = newZoom;
       this._panX = newPanX;
       this._panY = newPanY;
-      if (this.onPinch) this.onPinch(newZoom, newPanX, newPanY);
+
+      // Batch updates to next animation frame
+      if (!this._pendingPinchRAF) {
+        this._pendingPinchRAF = requestAnimationFrame(() => {
+          this._pendingPinchRAF = 0;
+          if (this.onPinch) this.onPinch(this._zoom, this._panX, this._panY);
+        });
+      }
     } else if (e.touches.length === 1 && this.enabled) {
       e.preventDefault();
     }
