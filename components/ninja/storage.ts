@@ -14,6 +14,7 @@ export interface Attempt {
 
 export interface Shape {
   type: "line" | "arrow" | "circle" | "angle" | "oval";
+  color?: string;
   x1: number;
   y1: number;
   x2: number;

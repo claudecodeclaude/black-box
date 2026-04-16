@@ -25,7 +25,7 @@ export default function NinjaPage() {
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [playing, setPlaying] = useState(false);
   const [saveLabel, setSaveLabel] = useState("Save Attempt");
-  const [shapeMenu, setShapeMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  const [shapeMenu, setShapeMenu] = useState<{ index: number; x: number; y: number; type: Shape["type"]; color: string } | null>(null);
   const [drawColor, setDrawColor] = useState<string>("#ff2222");
 
   // Camera / recording
@@ -77,8 +77,8 @@ export default function NinjaPage() {
         applyTransform(z, px, py);
         ac.setZoomState(z, px, py);
       };
-      ac.onShapeTap = (index, screenX, screenY) => {
-        setShapeMenu({ index, x: screenX, y: screenY });
+      ac.onShapeTap = (index, screenX, screenY, shape) => {
+        setShapeMenu({ index, x: screenX, y: screenY, type: shape.type, color: shape.color ?? "#ff2222" });
       };
       ac.color = drawColor;
       annotationRef.current = ac;
@@ -552,7 +552,7 @@ export default function NinjaPage() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {(["line", "arrow", "circle", "oval", "angle"] as const).map((type) => (
+            {(["line", "arrow", "circle", "oval", "angle"] as const).filter((t) => t !== shapeMenu.type).map((type) => (
               <button
                 key={type}
                 onClick={() => {
@@ -566,6 +566,23 @@ export default function NinjaPage() {
                 }}
               >
                 {type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+            {([["#22cc44", "Green"], ["#ffcc00", "Yellow"], ["#ff2222", "Red"]] as const).filter(([c]) => c !== shapeMenu.color).map(([c, label]) => (
+              <button
+                key={c}
+                onClick={() => {
+                  annotationRef.current?.changeShapeColor(shapeMenu.index, c);
+                  setShapeMenu(null);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
+                  background: "none", color: "#eee", border: "none", borderRadius: 6,
+                  textAlign: "left", cursor: "pointer",
+                }}
+              >
+                <span style={{ display: "inline-block", width: 16, height: 16, background: c, borderRadius: 4 }} />
+                {label}
               </button>
             ))}
             <button

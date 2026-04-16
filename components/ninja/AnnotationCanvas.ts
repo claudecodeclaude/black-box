@@ -1,7 +1,7 @@
 import type { Shape } from "./storage";
 
 export type PinchCallback = (zoom: number, panX: number, panY: number) => void;
-export type ShapeTapCallback = (shapeIndex: number, screenX: number, screenY: number) => void;
+export type ShapeTapCallback = (shapeIndex: number, screenX: number, screenY: number, shape: Shape) => void;
 
 interface Point { x: number; y: number }
 
@@ -201,7 +201,7 @@ export class AnnotationCanvas {
       const pos = this._getPos(e);
       const hitIdx = this._hitTest(pos);
       if (hitIdx >= 0 && this.onShapeTap) {
-        this.onShapeTap(hitIdx, this._tapStart.screenX, this._tapStart.screenY);
+        this.onShapeTap(hitIdx, this._tapStart.screenX, this._tapStart.screenY, this.shapes[hitIdx]);
       }
       this._tapStart = null;
       return;
@@ -218,6 +218,7 @@ export class AnnotationCanvas {
     const raw = this._strokePoints;
     const shape = this._recognize(raw);
     if (shape) {
+      shape.color = this.color;
       this.shapes.push(shape);
       this._rawStrokes.push(raw.slice());
     }
@@ -278,9 +279,16 @@ export class AnnotationCanvas {
 
     const shape = this._forceShape(raw, newType);
     if (shape) {
+      shape.color = this.shapes[index].color;
       this.shapes[index] = shape;
       this.redraw();
     }
+  }
+
+  changeShapeColor(index: number, color: string) {
+    if (index < 0 || index >= this.shapes.length) return;
+    this.shapes[index].color = color;
+    this.redraw();
   }
 
   private _forceShape(raw: Point[], type: Shape["type"]): Shape | null {
@@ -536,8 +544,9 @@ export class AnnotationCanvas {
     const y1 = shape.y1 * h;
     const x2 = shape.x2 * w;
     const y2 = shape.y2 * h;
+    const color = shape.color ?? this.color;
 
-    ctx.strokeStyle = this.color;
+    ctx.strokeStyle = color;
     ctx.lineWidth = this.lineWidth / this._zoom;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -605,7 +614,7 @@ export class AnnotationCanvas {
       const tx = x2 + Math.cos(midAngle) * textR;
       const ty = y2 + Math.sin(midAngle) * textR;
       ctx.font = `bold ${14 / this._zoom}px sans-serif`;
-      ctx.fillStyle = this.color;
+      ctx.fillStyle = color;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(`${degrees}°`, tx, ty);
