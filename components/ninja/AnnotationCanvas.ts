@@ -271,58 +271,73 @@ export class AnnotationCanvas {
       }
     }
 
-    // ── Angle: V-shape with sharp bend ──
-    const sampled = this._sample(raw, 24);
-    if (sampled.length >= 7) {
-      let bestIdx = -1;
-      let bestAngle = Math.PI;
+    // ── Arrow: straight stroke that hooks back at the end ──
+    // Find the point furthest from start — that's the arrow tip
+    let maxD = 0, tipIdx = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const d = this._dist(raw[i], first);
+      if (d > maxD) { maxD = d; tipIdx = i; }
+    }
 
-      for (let i = 3; i < sampled.length - 3; i++) {
-        const a = sampled[i - 3];
-        const b = sampled[i];
-        const c = sampled[i + 3];
-        const ba = { x: a.x - b.x, y: a.y - b.y };
-        const bc = { x: c.x - b.x, y: c.y - b.y };
-        const dot = ba.x * bc.x + ba.y * bc.y;
-        const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
-        if (mag > 0.0001) {
-          const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
-          if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
-        }
-      }
+    // Arrow if: tip is NOT the last point (stroke came back after the tip)
+    // and the path to the tip is roughly straight
+    if (tipIdx < raw.length - 3) {
+      const toTip = raw.slice(0, tipIdx + 1);
+      const tailLen = this._pathLength(raw.slice(tipIdx));
+      const tipStraightness = this._segmentStraightness(toTip);
 
-      // Sharp bend (< 140°) with both arms reasonably straight
-      if (bestAngle < Math.PI * 0.78 && bestIdx >= 3 && bestIdx <= sampled.length - 4) {
-        const arm1 = sampled.slice(0, bestIdx + 1);
-        const arm2 = sampled.slice(bestIdx);
-        if (this._segmentStraightness(arm1) > 0.85 && this._segmentStraightness(arm2) > 0.85) {
-          return {
-            type: "angle",
-            x1: sampled[0].x, y1: sampled[0].y,
-            x2: sampled[bestIdx].x, y2: sampled[bestIdx].y,
-            x3: sampled[sampled.length - 1].x, y3: sampled[sampled.length - 1].y,
-          };
-        }
+      // Tail must be substantial (> 5% of total) but not too long (< 45%)
+      // and the shaft to the tip must be straight
+      if (tipStraightness > 0.8 && tailLen > pathLen * 0.05 && tailLen < pathLen * 0.45) {
+        const tip = raw[tipIdx];
+        return { type: "arrow", x1: first.x, y1: first.y, x2: tip.x, y2: tip.y };
       }
     }
 
-    // ── Straight-ish strokes: arrow vs line ──
-    const straightness = closeDist / pathLen;
+    // ── Angle: V-shape with sharp bend ──
+    // Only check if the overall stroke is NOT very straight
+    const overallStraightness = closeDist / pathLen;
+    if (overallStraightness < 0.9) {
+      const sampled = this._sample(raw, 24);
+      if (sampled.length >= 7) {
+        let bestIdx = -1;
+        let bestAngle = Math.PI;
 
-    // Check for arrow: straight main body with a hook/flick at the end
-    if (straightness > 0.5 && straightness < 0.92) {
-      // Find the point furthest from the start
-      let maxD = 0, tipIdx = 0;
-      for (let i = 0; i < raw.length; i++) {
-        const d = this._dist(raw[i], first);
-        if (d > maxD) { maxD = d; tipIdx = i; }
-      }
-      // If the tip is in the latter part of the stroke and the path to the tip is straight
-      if (tipIdx > raw.length * 0.5) {
-        const toTip = raw.slice(0, tipIdx + 1);
-        if (this._segmentStraightness(toTip) > 0.9) {
-          const tip = raw[tipIdx];
-          return { type: "arrow", x1: first.x, y1: first.y, x2: tip.x, y2: tip.y };
+        // Only look for vertex in the middle 60% of the stroke
+        const lo = Math.max(3, Math.floor(sampled.length * 0.2));
+        const hi = Math.min(sampled.length - 3, Math.ceil(sampled.length * 0.8));
+
+        for (let i = lo; i < hi; i++) {
+          const a = sampled[i - 3];
+          const b = sampled[i];
+          const c = sampled[i + 3];
+          const ba = { x: a.x - b.x, y: a.y - b.y };
+          const bc = { x: c.x - b.x, y: c.y - b.y };
+          const dot = ba.x * bc.x + ba.y * bc.y;
+          const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
+          if (mag > 0.0001) {
+            const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
+            if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
+          }
+        }
+
+        // Sharp bend (< 120°) with both arms straight and substantial
+        if (bestAngle < Math.PI * 0.67 && bestIdx >= 0) {
+          const arm1 = sampled.slice(0, bestIdx + 1);
+          const arm2 = sampled.slice(bestIdx);
+          const arm1Len = this._pathLength(arm1);
+          const arm2Len = this._pathLength(arm2);
+          const minArm = pathLen * 0.2; // each arm must be at least 20% of total
+
+          if (arm1Len > minArm && arm2Len > minArm &&
+              this._segmentStraightness(arm1) > 0.85 && this._segmentStraightness(arm2) > 0.85) {
+            return {
+              type: "angle",
+              x1: sampled[0].x, y1: sampled[0].y,
+              x2: sampled[bestIdx].x, y2: sampled[bestIdx].y,
+              x3: sampled[sampled.length - 1].x, y3: sampled[sampled.length - 1].y,
+            };
+          }
         }
       }
     }
