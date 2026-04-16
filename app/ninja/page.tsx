@@ -26,6 +26,7 @@ export default function NinjaPage() {
   const [playing, setPlaying] = useState(false);
   const [saveLabel, setSaveLabel] = useState("Save Attempt");
   const [shapeMenu, setShapeMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  const [drawColor, setDrawColor] = useState<string>("#ff2222");
 
   // Camera / recording
   const [isRecording, setIsRecording] = useState(false);
@@ -79,9 +80,14 @@ export default function NinjaPage() {
       ac.onShapeTap = (index, screenX, screenY) => {
         setShapeMenu({ index, x: screenX, y: screenY });
       };
+      ac.color = drawColor;
       annotationRef.current = ac;
     }
   }, []);
+
+  useEffect(() => {
+    if (annotationRef.current) annotationRef.current.color = drawColor;
+  }, [drawColor]);
 
   const refreshAttempts = useCallback(() => {
     getAllAttempts().then((all) => {
@@ -504,6 +510,18 @@ export default function NinjaPage() {
         <div style={{ display: "flex", gap: 4, padding: "0 8px 4px" }}>
           <button onClick={() => annotationRef.current?.undo()} style={toolBtnStyle}>Undo</button>
           <button onClick={() => annotationRef.current?.clear()} style={toolBtnStyle}>Clear</button>
+          {(["#22cc44", "#ffcc00", "#ff2222"] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setDrawColor(c)}
+              aria-label={`Draw color ${c}`}
+              style={{
+                flex: 1, padding: "10px 2px", minWidth: 0, cursor: "pointer", borderRadius: 8,
+                background: c,
+                border: drawColor === c ? "3px solid #fff" : "2px solid #333",
+              }}
+            />
+          ))}
         </div>
 
         {/* Notes + Save */}
