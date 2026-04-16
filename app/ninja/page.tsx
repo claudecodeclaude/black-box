@@ -541,7 +541,7 @@ export default function NinjaPage() {
             placeholder="Coach notes..."
             style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "inherit", background: "#1a1a1a", color: "#eee", border: "2px solid #333", borderRadius: 10, minWidth: 0 }}
           />
-          <button onClick={handleSave} style={{ padding: "10px 16px", fontSize: 15, fontWeight: 700, background: "#1a9a3a", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={handleSave} style={{ padding: "10px 16px", fontSize: 15, fontWeight: 700, background: "#0a84ff", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", whiteSpace: "nowrap" }}>
             Save
           </button>
         </div>
