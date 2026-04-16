@@ -15,12 +15,6 @@ import {
 type View = "upload" | "player";
 type Tool = "line" | "arrow" | "circle";
 
-function escapeHtml(text: string) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 export default function NinjaPage() {
   const [view, setView] = useState<View>("upload");
   const [attempts, setAttempts] = useState<Attempt[]>([]);
@@ -37,14 +31,13 @@ export default function NinjaPage() {
   const currentBlobRef = useRef<Blob | null>(null);
   const currentIdRef = useRef<number | null>(null);
 
-  // Init annotation canvas
+  // Init annotation canvas once on mount (both views always in DOM)
   useEffect(() => {
     if (canvasRef.current && videoRef.current) {
       annotationRef.current = new AnnotationCanvas(canvasRef.current, videoRef.current);
     }
   }, []);
 
-  // Load attempts list
   const refreshAttempts = useCallback(() => {
     getAllAttempts().then((all) => {
       setAttempts(all.sort((a, b) => b.id - a.id));
@@ -55,7 +48,6 @@ export default function NinjaPage() {
     refreshAttempts();
   }, [refreshAttempts]);
 
-  // Window resize
   useEffect(() => {
     const onResize = () => annotationRef.current?.resize();
     window.addEventListener("resize", onResize);
@@ -77,8 +69,9 @@ export default function NinjaPage() {
     if (!file) return;
     currentBlobRef.current = file;
     currentIdRef.current = null;
-    loadVideoBlob(file);
     setView("player");
+    // Load after view switch so video element is visible
+    setTimeout(() => loadVideoBlob(file), 0);
     e.target.value = "";
   }
 
@@ -143,21 +136,21 @@ export default function NinjaPage() {
     if (!attempt) return;
     currentIdRef.current = attempt.id;
     currentBlobRef.current = attempt.video;
-    loadVideoBlob(attempt.video);
     if (notesRef.current) notesRef.current.value = attempt.notes || "";
-
-    videoRef.current!.addEventListener("loadedmetadata", function onMeta() {
-      videoRef.current!.removeEventListener("loadedmetadata", onMeta);
-      if (attempt.annotationTime != null) {
-        videoRef.current!.currentTime = attempt.annotationTime;
-      }
-      setTimeout(() => {
-        annotationRef.current?.resize();
-        annotationRef.current?.setAnnotations(attempt.annotations as Shape[]);
-      }, 50);
-    });
-
     setView("player");
+    setTimeout(() => {
+      loadVideoBlob(attempt.video);
+      videoRef.current!.addEventListener("loadedmetadata", function onMeta() {
+        videoRef.current!.removeEventListener("loadedmetadata", onMeta);
+        if (attempt.annotationTime != null) {
+          videoRef.current!.currentTime = attempt.annotationTime;
+        }
+        setTimeout(() => {
+          annotationRef.current?.resize();
+          annotationRef.current?.setAnnotations(attempt.annotations as Shape[]);
+        }, 50);
+      });
+    }, 0);
   }
 
   async function handleDelete(id: number) {
@@ -191,202 +184,192 @@ export default function NinjaPage() {
 
   return (
     <main style={{ maxWidth: 480, margin: "0 auto", background: "#111", minHeight: "100vh" }}>
-      {/* Upload View */}
-      {view === "upload" && (
-        <div style={{ padding: "0 16px 32px" }}>
-          <div style={{ marginTop: 16, marginBottom: 4 }}>
-            <Link
-              href="/"
-              style={{ color: "var(--accent)", fontSize: 15, fontWeight: 600, textDecoration: "none" }}
-            >
-              ← Black Box
-            </Link>
-          </div>
-          <div style={{ textAlign: "center", padding: "24px 16px 12px" }}>
-            <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: 2 }}>NINJA LAB</h1>
-            <div style={{ fontSize: 12, color: "#777", textTransform: "uppercase", letterSpacing: 3, marginTop: 4 }}>
-              Replay Analysis
-            </div>
-          </div>
 
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              display: "block", width: "100%", padding: 18, fontSize: 18,
-              fontWeight: 600, background: "#2a6aff", color: "#fff",
-              border: "none", borderRadius: 12, cursor: "pointer", marginTop: 16,
-            }}
+      {/* Upload View — always in DOM, hidden when player is active */}
+      <div style={{ display: view === "upload" ? "block" : "none", padding: "0 16px 32px" }}>
+        <div style={{ marginTop: 16, marginBottom: 4 }}>
+          <Link
+            href="/"
+            style={{ color: "var(--accent)", fontSize: 15, fontWeight: 600, textDecoration: "none" }}
           >
-            Upload Video
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*"
-            style={{ display: "none" }}
-            onChange={handleFileChange}
-          />
-
-          <div style={{ fontSize: 13, color: "#666", textTransform: "uppercase", letterSpacing: 1.5, margin: "28px 0 12px" }}>
-            Saved Attempts
+            ← Black Box
+          </Link>
+        </div>
+        <div style={{ textAlign: "center", padding: "24px 16px 12px" }}>
+          <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: 2 }}>NINJA LAB</h1>
+          <div style={{ fontSize: 12, color: "#777", textTransform: "uppercase", letterSpacing: 3, marginTop: 4 }}>
+            Replay Analysis
           </div>
+        </div>
 
-          {attempts.length === 0 ? (
-            <p style={{ color: "#444", textAlign: "center", padding: 24, fontSize: 14 }}>
-              No saved attempts yet
-            </p>
-          ) : (
-            attempts.map((attempt) => {
-              const date = new Date(attempt.createdAt).toLocaleDateString(undefined, {
-                month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-              });
-              const preview = attempt.notes ? attempt.notes.substring(0, 60) : "No notes";
-              return (
-                <div
-                  key={attempt.id}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "14px 12px", background: "#1a1a1a", borderRadius: 10, marginBottom: 8, cursor: "pointer",
-                  }}
-                >
-                  <div
-                    style={{ flex: 1, minWidth: 0 }}
-                    onClick={() => openAttempt(attempt.id)}
-                  >
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{date}</div>
-                    <div style={{
-                      fontSize: 13, color: "#777", whiteSpace: "nowrap",
-                      overflow: "hidden", textOverflow: "ellipsis",
-                    }}>
-                      {preview}
-                    </div>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            display: "block", width: "100%", padding: 18, fontSize: 18,
+            fontWeight: 600, background: "#2a6aff", color: "#fff",
+            border: "none", borderRadius: 12, cursor: "pointer", marginTop: 16,
+          }}
+        >
+          Upload Video
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+
+        <div style={{ fontSize: 13, color: "#666", textTransform: "uppercase", letterSpacing: 1.5, margin: "28px 0 12px" }}>
+          Saved Attempts
+        </div>
+
+        {attempts.length === 0 ? (
+          <p style={{ color: "#444", textAlign: "center", padding: 24, fontSize: 14 }}>
+            No saved attempts yet
+          </p>
+        ) : (
+          attempts.map((attempt) => {
+            const date = new Date(attempt.createdAt).toLocaleDateString(undefined, {
+              month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+            });
+            const preview = attempt.notes ? attempt.notes.substring(0, 60) : "No notes";
+            return (
+              <div
+                key={attempt.id}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "14px 12px", background: "#1a1a1a", borderRadius: 10, marginBottom: 8, cursor: "pointer",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }} onClick={() => openAttempt(attempt.id)}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{date}</div>
+                  <div style={{
+                    fontSize: 13, color: "#777", whiteSpace: "nowrap",
+                    overflow: "hidden", textOverflow: "ellipsis",
+                  }}>
+                    {preview}
                   </div>
-                  <button
-                    onClick={() => handleDelete(attempt.id)}
-                    style={{ background: "none", border: "none", color: "#555", fontSize: 18, padding: "8px 12px", cursor: "pointer" }}
-                  >
-                    ✕
-                  </button>
                 </div>
-              );
-            })
-          )}
+                <button
+                  onClick={() => handleDelete(attempt.id)}
+                  style={{ background: "none", border: "none", color: "#555", fontSize: 18, padding: "8px 12px", cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Player View — always in DOM, hidden when upload is active */}
+      <div style={{ display: view === "player" ? "block" : "none", paddingBottom: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "10px 16px", gap: 12 }}>
+          <button
+            onClick={handleBack}
+            style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 16, fontWeight: 600, padding: "8px 0", cursor: "pointer" }}
+          >
+            ← Back
+          </button>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Ninja Lab</span>
         </div>
-      )}
 
-      {/* Player View */}
-      {view === "player" && (
-        <div style={{ paddingBottom: 32 }}>
-          <div style={{ display: "flex", alignItems: "center", padding: "10px 16px", gap: 12 }}>
-            <button
-              onClick={handleBack}
-              style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 16, fontWeight: 600, padding: "8px 0", cursor: "pointer" }}
-            >
-              ← Back
-            </button>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>Ninja Lab</span>
-          </div>
-
-          <div style={{ position: "relative", width: "100%", background: "#000", lineHeight: 0 }}>
-            <video
-              ref={videoRef}
-              playsInline
-              style={{ width: "100%", display: "block" }}
-              onPlay={handleVideoPlay}
-              onPause={handleVideoPause}
-              onLoadedMetadata={handleLoadedMetadata}
-            />
-            <canvas
-              ref={canvasRef}
-              style={{
-                position: "absolute", top: 0, left: 0,
-                width: "100%", height: "100%",
-                pointerEvents: "none", touchAction: "none",
-              }}
-            />
-          </div>
-
-          {/* Playback controls */}
-          <div style={{ display: "flex", gap: 8, padding: "12px 16px 8px" }}>
-            {[
-              { label: playing ? "Pause" : "Play", onClick: handlePlay },
-              { label: "← Frame", onClick: handleFrameBack },
-              { label: "Frame →", onClick: handleFrameForward },
-            ].map((btn) => (
-              <button key={btn.label} onClick={btn.onClick} style={controlBtnStyle}>
-                {btn.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Speed controls */}
-          <div style={{ display: "flex", gap: 8, padding: "0 16px 8px" }}>
-            {([0.25, 0.5, 1] as const).map((rate) => (
-              <button
-                key={rate}
-                onClick={() => handleSpeed(rate)}
-                style={{
-                  ...controlBtnStyle,
-                  borderColor: videoRef.current?.playbackRate === rate ? "#2a6aff" : "#333",
-                  background: videoRef.current?.playbackRate === rate ? "#152040" : "#222",
-                }}
-              >
-                {rate}x
-              </button>
-            ))}
-          </div>
-
-          {/* Annotation tools */}
-          <div style={{ fontSize: 12, color: "#555", textTransform: "uppercase", letterSpacing: 1, padding: "4px 16px 6px" }}>
-            Draw on paused frame
-          </div>
-          <div style={{
-            display: "flex", gap: 8, padding: "0 16px 12px",
-            opacity: toolsDisabled ? 0.25 : 1,
-            pointerEvents: toolsDisabled ? "none" : "auto",
-          }}>
-            {(["line", "arrow", "circle"] as Tool[]).map((tool) => (
-              <button
-                key={tool}
-                onClick={() => handleToolSelect(tool)}
-                style={{
-                  ...toolBtnStyle,
-                  borderColor: activeTool === tool ? "#ff3333" : "#333",
-                  background: activeTool === tool ? "#301515" : "#222",
-                }}
-              >
-                {tool.charAt(0).toUpperCase() + tool.slice(1)}
-              </button>
-            ))}
-            <button onClick={() => annotationRef.current?.undo()} style={toolBtnStyle}>Undo</button>
-            <button onClick={() => annotationRef.current?.clear()} style={toolBtnStyle}>Clear</button>
-          </div>
-
-          <textarea
-            ref={notesRef}
-            placeholder="Coach notes..."
+        <div style={{ position: "relative", width: "100%", background: "#000", lineHeight: 0 }}>
+          <video
+            ref={videoRef}
+            playsInline
+            style={{ width: "100%", display: "block" }}
+            onPlay={handleVideoPlay}
+            onPause={handleVideoPause}
+            onLoadedMetadata={handleLoadedMetadata}
+          />
+          <canvas
+            ref={canvasRef}
             style={{
-              display: "block", width: "calc(100% - 32px)", margin: "0 16px 12px",
-              padding: 12, fontSize: 16, fontFamily: "inherit",
-              background: "#1a1a1a", color: "#eee",
-              border: "2px solid #333", borderRadius: 10,
-              resize: "vertical", minHeight: 56,
+              position: "absolute", top: 0, left: 0,
+              width: "100%", height: "100%",
+              pointerEvents: "none", touchAction: "none",
             }}
           />
-
-          <button
-            onClick={handleSave}
-            style={{
-              display: "block", width: "calc(100% - 32px)", margin: "0 16px",
-              padding: 16, fontSize: 17, fontWeight: 700,
-              background: saveLabel === "Saved!" ? "#2a6aff" : "#1a9a3a",
-              color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
-            }}
-          >
-            {saveLabel}
-          </button>
         </div>
-      )}
+
+        {/* Playback controls */}
+        <div style={{ display: "flex", gap: 8, padding: "12px 16px 8px" }}>
+          {[
+            { label: playing ? "Pause" : "Play", onClick: handlePlay },
+            { label: "← Frame", onClick: handleFrameBack },
+            { label: "Frame →", onClick: handleFrameForward },
+          ].map((btn) => (
+            <button key={btn.label} onClick={btn.onClick} style={controlBtnStyle}>
+              {btn.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Speed controls */}
+        <div style={{ display: "flex", gap: 8, padding: "0 16px 8px" }}>
+          {([0.25, 0.5, 1] as const).map((rate) => (
+            <button
+              key={rate}
+              onClick={() => handleSpeed(rate)}
+              style={controlBtnStyle}
+            >
+              {rate}x
+            </button>
+          ))}
+        </div>
+
+        {/* Annotation tools */}
+        <div style={{ fontSize: 12, color: "#555", textTransform: "uppercase", letterSpacing: 1, padding: "4px 16px 6px" }}>
+          Draw on paused frame
+        </div>
+        <div style={{
+          display: "flex", gap: 8, padding: "0 16px 12px",
+          opacity: toolsDisabled ? 0.25 : 1,
+          pointerEvents: toolsDisabled ? "none" : "auto",
+        }}>
+          {(["line", "arrow", "circle"] as Tool[]).map((tool) => (
+            <button
+              key={tool}
+              onClick={() => handleToolSelect(tool)}
+              style={{
+                ...toolBtnStyle,
+                borderColor: activeTool === tool ? "#ff3333" : "#333",
+                background: activeTool === tool ? "#301515" : "#222",
+              }}
+            >
+              {tool.charAt(0).toUpperCase() + tool.slice(1)}
+            </button>
+          ))}
+          <button onClick={() => annotationRef.current?.undo()} style={toolBtnStyle}>Undo</button>
+          <button onClick={() => annotationRef.current?.clear()} style={toolBtnStyle}>Clear</button>
+        </div>
+
+        <textarea
+          ref={notesRef}
+          placeholder="Coach notes..."
+          style={{
+            display: "block", width: "calc(100% - 32px)", margin: "0 16px 12px",
+            padding: 12, fontSize: 16, fontFamily: "inherit",
+            background: "#1a1a1a", color: "#eee",
+            border: "2px solid #333", borderRadius: 10,
+            resize: "vertical", minHeight: 56,
+          }}
+        />
+
+        <button
+          onClick={handleSave}
+          style={{
+            display: "block", width: "calc(100% - 32px)", margin: "0 16px",
+            padding: 16, fontSize: 17, fontWeight: 700,
+            background: saveLabel === "Saved!" ? "#2a6aff" : "#1a9a3a",
+            color: "#fff", border: "none", borderRadius: 12, cursor: "pointer",
+          }}
+        >
+          {saveLabel}
+        </button>
+      </div>
     </main>
   );
 }
