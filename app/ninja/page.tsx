@@ -570,11 +570,12 @@ export default function NinjaPage() {
                   setShapeMenu(null);
                 }}
                 style={{
-                  display: "block", width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
+                  display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
                   background: "none", color: "#eee", border: "none", borderRadius: 6,
                   textAlign: "left", cursor: "pointer",
                 }}
               >
+                <ShapeIcon type={type} />
                 {type.charAt(0).toUpperCase() + type.slice(1)}
               </button>
             ))}
@@ -601,11 +602,12 @@ export default function NinjaPage() {
                 setShapeMenu(null);
               }}
               style={{
-                display: "block", width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
+                display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
                 background: "none", color: "#eee", border: "none", borderRadius: 6,
                 textAlign: "left", cursor: "pointer", borderTop: "1px solid #333",
               }}
             >
+              <TrashIcon />
               Delete
             </button>
           </div>
@@ -665,3 +667,25 @@ const toolBtnStyle: React.CSSProperties = {
   flex: 1, padding: "10px 2px", fontSize: 13, fontWeight: 600,
   background: "#222", color: "#eee", border: "2px solid #333", borderRadius: 8, cursor: "pointer", minWidth: 0,
 };
+
+function ShapeIcon({ type }: { type: Shape["type"] }) {
+  const common = { width: 18, height: 18, viewBox: "0 0 20 20", stroke: "#eee", strokeWidth: 2, fill: "none", strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (type === "line") return <svg {...common}><line x1="4" y1="16" x2="16" y2="4" /></svg>;
+  if (type === "arrow") return <svg {...common}><line x1="4" y1="16" x2="15" y2="5" /><polyline points="10,5 15,5 15,10" /></svg>;
+  if (type === "circle") return <svg {...common}><circle cx="10" cy="10" r="6" /></svg>;
+  if (type === "oval") return <svg {...common}><ellipse cx="10" cy="10" rx="7" ry="5" /></svg>;
+  if (type === "angle") return <svg {...common}><polyline points="4,5 10,15 16,5" /></svg>;
+  return null;
+}
+
+function TrashIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" stroke="#eee" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 6 L16 6" />
+      <path d="M8 4 L12 4" />
+      <path d="M5.5 6 L6.5 17 L13.5 17 L14.5 6" />
+      <line x1="9" y1="9" x2="9" y2="14" />
+      <line x1="11" y1="9" x2="11" y2="14" />
+    </svg>
+  );
+}
