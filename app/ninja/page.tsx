@@ -200,6 +200,26 @@ export default function NinjaPage() {
   const [showPermissionHelp, setShowPermissionHelp] = useState(false);
 
   async function openCamera() {
+    // Check if camera permission is already permanently granted
+    let alreadyGranted = false;
+    try {
+      const perm = await navigator.permissions.query({ name: "camera" as PermissionName });
+      alreadyGranted = perm.state === "granted";
+    } catch {
+      // Permissions API not available — fall through and try anyway
+    }
+
+    if (!alreadyGranted) {
+      // Show instructions before the system prompt so user knows how to make it permanent
+      setShowPermissionHelp(true);
+      return;
+    }
+
+    await doOpenCamera();
+  }
+
+  async function doOpenCamera() {
+    setShowPermissionHelp(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
@@ -216,7 +236,7 @@ export default function NinjaPage() {
         }
       }, 50);
     } catch {
-      // Permission was denied or dismissed — show in-app instructions
+      // Still denied — show instructions again
       setShowPermissionHelp(true);
     }
   }
@@ -550,18 +570,26 @@ export default function NinjaPage() {
             <p style={{ fontSize: 14, color: "#aaa", lineHeight: 1.6, marginBottom: 16 }}>
               To record videos, allow camera and microphone access permanently so you never see this prompt again:
             </p>
+            <p style={{ fontSize: 13, color: "#666", lineHeight: 1.5, marginBottom: 12 }}>
+              To stop seeing this message, grant permanent access in Settings:
+            </p>
             <ol style={{ fontSize: 14, color: "#aaa", lineHeight: 2, paddingLeft: 20, marginBottom: 20 }}>
               <li>Open the iPhone <strong style={{ color: "#eee" }}>Settings</strong> app</li>
               <li>Scroll down and tap <strong style={{ color: "#eee" }}>Safari</strong></li>
               <li>Tap <strong style={{ color: "#eee" }}>Camera</strong> → select <strong style={{ color: "#eee" }}>Allow</strong></li>
               <li>Tap <strong style={{ color: "#eee" }}>Microphone</strong> → select <strong style={{ color: "#eee" }}>Allow</strong></li>
-              <li>Return here and tap <strong style={{ color: "#eee" }}>Record Video</strong> again</li>
             </ol>
             <button
-              onClick={() => setShowPermissionHelp(false)}
-              style={{ display: "block", width: "100%", padding: 14, fontSize: 16, fontWeight: 600, background: "#2a6aff", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer" }}
+              onClick={doOpenCamera}
+              style={{ display: "block", width: "100%", padding: 14, fontSize: 16, fontWeight: 600, background: "#2a6aff", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", marginBottom: 10 }}
             >
-              Got It
+              Continue to Record
+            </button>
+            <button
+              onClick={() => setShowPermissionHelp(false)}
+              style={{ display: "block", width: "100%", padding: 14, fontSize: 15, fontWeight: 600, background: "#222", color: "#aaa", border: "none", borderRadius: 10, cursor: "pointer" }}
+            >
+              Cancel
             </button>
           </div>
         </div>
