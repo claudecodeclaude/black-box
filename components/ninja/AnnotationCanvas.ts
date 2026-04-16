@@ -183,10 +183,13 @@ export class AnnotationCanvas {
   }
 
   resize() {
-    const rect = this.canvas.getBoundingClientRect();
+    // Use offsetWidth/Height (layout size) not getBoundingClientRect (visual size)
+    // so canvas pixel dimensions are correct regardless of CSS zoom transforms on parent
+    const w = this.canvas.offsetWidth;
+    const h = this.canvas.offsetHeight;
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.redraw();
   }
