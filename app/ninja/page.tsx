@@ -34,6 +34,8 @@ export default function NinjaPage() {
   const [showFrameGrid, setShowFrameGrid] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
+  const [dirty, setDirty] = useState<boolean>(false);
+  const [showExitPrompt, setShowExitPrompt] = useState<boolean>(false);
   const framesRef = useRef<FrameSnapshot[]>([]);
   const currentFrameIdxRef = useRef<number | null>(null);
   useEffect(() => { framesRef.current = frames; }, [frames]);
@@ -302,11 +304,24 @@ export default function NinjaPage() {
     annotationRef.current?.clear();
     setFrames([]);
     setCurrentFrameIdx(null);
+    setDirty(false);
     if (notesRef.current) notesRef.current.value = "";
     setSaveLabel("Save Attempt");
   }
 
+  function hasUnsavedWork(): boolean {
+    return dirty || (annotationRef.current?.shapes.length ?? 0) > 0;
+  }
+
   function goToUpload() {
+    if (hasUnsavedWork()) {
+      setShowExitPrompt(true);
+      return;
+    }
+    actuallyGoToUpload();
+  }
+
+  function actuallyGoToUpload() {
     const video = videoRef.current!;
     video.pause();
     if (video.src?.startsWith("blob:")) URL.revokeObjectURL(video.src);
@@ -316,6 +331,8 @@ export default function NinjaPage() {
     currentIdRef.current = null;
     resetZoom();
     clearDraft();
+    setDirty(false);
+    setShowExitPrompt(false);
     setView("upload");
     refreshAttempts();
   }
@@ -360,6 +377,7 @@ export default function NinjaPage() {
         const next = framesRef.current.filter((_, i) => i !== editingIdx);
         framesRef.current = next;
         setFrames(next);
+        setDirty(true);
         currentFrameIdxRef.current = null;
         setCurrentFrameIdx(null);
       }
@@ -377,6 +395,7 @@ export default function NinjaPage() {
     next.sort((a, b) => a.time - b.time);
     framesRef.current = next;
     setFrames(next);
+    setDirty(true);
     ann.clear();
     currentFrameIdxRef.current = null;
     setCurrentFrameIdx(null);
@@ -489,6 +508,7 @@ export default function NinjaPage() {
 
   function handleFrameDelete(idx: number) {
     setFrames((prev) => prev.filter((_, i) => i !== idx));
+    setDirty(true);
     if (currentFrameIdxRef.current === idx) {
       annotationRef.current?.clear();
       setCurrentFrameIdx(null);
@@ -558,7 +578,8 @@ export default function NinjaPage() {
       alert("Could not save — your device may be out of storage space.");
     }
     clearDraft().catch(() => {});
-    goToUpload();
+    setDirty(false);
+    actuallyGoToUpload();
   }
 
   return (
@@ -761,6 +782,7 @@ export default function NinjaPage() {
           <input
             ref={notesRef}
             placeholder="Coach notes..."
+            onChange={() => setDirty(true)}
             style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "inherit", background: "#1a1a1a", color: "#eee", border: "2px solid #333", borderRadius: 10, minWidth: 0 }}
           />
           <button onClick={handleSave} style={{ padding: "10px 16px", fontSize: 15, fontWeight: 700, background: "#0a84ff", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -768,6 +790,42 @@ export default function NinjaPage() {
           </button>
         </div>
       </div>
+      {/* Exit confirmation */}
+      {showExitPrompt && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 110, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={() => setShowExitPrompt(false)}
+        >
+          <div
+            style={{ background: "#1a1a1a", borderRadius: 14, padding: 20, width: "100%", maxWidth: 320, border: "2px solid #333" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#eee", marginBottom: 8 }}>Save changes?</div>
+            <div style={{ fontSize: 14, color: "#aaa", lineHeight: 1.4, marginBottom: 18 }}>
+              You have unsaved drawings or notes. They will be lost if you leave without saving.
+            </div>
+            <button
+              onClick={() => { setShowExitPrompt(false); handleSave(); }}
+              style={{ display: "block", width: "100%", padding: 12, fontSize: 15, fontWeight: 700, background: "#0a84ff", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", marginBottom: 8 }}
+            >
+              Save and Leave
+            </button>
+            <button
+              onClick={() => { setShowExitPrompt(false); actuallyGoToUpload(); }}
+              style={{ display: "block", width: "100%", padding: 12, fontSize: 15, fontWeight: 600, background: "#3a1a1a", color: "#ff6b6b", border: "none", borderRadius: 10, cursor: "pointer", marginBottom: 8 }}
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => setShowExitPrompt(false)}
+              style={{ display: "block", width: "100%", padding: 12, fontSize: 15, fontWeight: 600, background: "#222", color: "#eee", border: "none", borderRadius: 10, cursor: "pointer" }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Frame grid */}
       {showFrameGrid && (
         <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column" }}>
