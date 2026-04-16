@@ -309,47 +309,45 @@ export class AnnotationCanvas {
       }
     }
 
-    // ── Angle: V-shape with sharp bend ──
-    const overallStraightness = closeDist / pathLen;
-    if (overallStraightness < 0.9) {
-      const sampled = this._sample(raw, 24);
-      if (sampled.length >= 7) {
-        let bestIdx = -1;
-        let bestAngle = Math.PI;
+    // ── Angle: V-shape with bend ──
+    const sampled = this._sample(raw, 24);
+    if (sampled.length >= 7) {
+      let bestIdx = -1;
+      let bestAngle = Math.PI;
 
-        const lo = Math.max(3, Math.floor(sampled.length * 0.2));
-        const hi = Math.min(sampled.length - 3, Math.ceil(sampled.length * 0.8));
+      const lo = Math.max(3, Math.floor(sampled.length * 0.2));
+      const hi = Math.min(sampled.length - 3, Math.ceil(sampled.length * 0.8));
 
-        for (let i = lo; i < hi; i++) {
-          const a = sampled[i - 3];
-          const b = sampled[i];
-          const c = sampled[i + 3];
-          const ba = { x: a.x - b.x, y: a.y - b.y };
-          const bc = { x: c.x - b.x, y: c.y - b.y };
-          const dot = ba.x * bc.x + ba.y * bc.y;
-          const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
-          if (mag > 0.0001) {
-            const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
-            if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
-          }
+      for (let i = lo; i < hi; i++) {
+        const a = sampled[i - 3];
+        const b = sampled[i];
+        const c = sampled[i + 3];
+        const ba = { x: a.x - b.x, y: a.y - b.y };
+        const bc = { x: c.x - b.x, y: c.y - b.y };
+        const dot = ba.x * bc.x + ba.y * bc.y;
+        const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
+        if (mag > 0.0001) {
+          const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
+          if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
         }
+      }
 
-        if (bestAngle < Math.PI * 0.67 && bestIdx >= 0) {
-          const arm1 = sampled.slice(0, bestIdx + 1);
-          const arm2 = sampled.slice(bestIdx);
-          const arm1Len = this._pathLength(arm1);
-          const arm2Len = this._pathLength(arm2);
-          const minArm = pathLen * 0.2;
+      // Accept angles up to ~160° — covers wide body angles
+      if (bestAngle < Math.PI * 0.89 && bestIdx >= 0) {
+        const arm1 = sampled.slice(0, bestIdx + 1);
+        const arm2 = sampled.slice(bestIdx);
+        const arm1Len = this._pathLength(arm1);
+        const arm2Len = this._pathLength(arm2);
+        const minArm = pathLen * 0.15;
 
-          if (arm1Len > minArm && arm2Len > minArm &&
-              this._segmentStraightness(arm1) > 0.85 && this._segmentStraightness(arm2) > 0.85) {
-            return {
-              type: "angle",
-              x1: sampled[0].x, y1: sampled[0].y,
-              x2: sampled[bestIdx].x, y2: sampled[bestIdx].y,
-              x3: sampled[sampled.length - 1].x, y3: sampled[sampled.length - 1].y,
-            };
-          }
+        if (arm1Len > minArm && arm2Len > minArm &&
+            this._segmentStraightness(arm1) > 0.8 && this._segmentStraightness(arm2) > 0.8) {
+          return {
+            type: "angle",
+            x1: sampled[0].x, y1: sampled[0].y,
+            x2: sampled[bestIdx].x, y2: sampled[bestIdx].y,
+            x3: sampled[sampled.length - 1].x, y3: sampled[sampled.length - 1].y,
+          };
         }
       }
     }
