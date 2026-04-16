@@ -11,6 +11,7 @@ import {
   clearDraft,
   type Attempt,
   type Shape,
+  type FrameSnapshot,
 } from "@/components/ninja/storage";
 
 type View = "upload" | "camera" | "player";
@@ -28,6 +29,13 @@ export default function NinjaPage() {
   const [shapeMenu, setShapeMenu] = useState<{ index: number; x: number; y: number; type: Shape["type"]; color: string } | null>(null);
   const [drawColor, setDrawColor] = useState<string>("#ff2222");
   const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [frames, setFrames] = useState<FrameSnapshot[]>([]);
+  const [currentFrameIdx, setCurrentFrameIdx] = useState<number | null>(null);
+  const [showFrameGrid, setShowFrameGrid] = useState<boolean>(false);
+  const framesRef = useRef<FrameSnapshot[]>([]);
+  const currentFrameIdxRef = useRef<number | null>(null);
+  useEffect(() => { framesRef.current = frames; }, [frames]);
+  useEffect(() => { currentFrameIdxRef.current = currentFrameIdx; }, [currentFrameIdx]);
 
   // Camera / recording
   const [isRecording, setIsRecording] = useState(false);
@@ -290,6 +298,8 @@ export default function NinjaPage() {
     video.src = URL.createObjectURL(blob);
     video.load();
     annotationRef.current?.clear();
+    setFrames([]);
+    setCurrentFrameIdx(null);
     if (notesRef.current) notesRef.current.value = "";
     setSaveLabel("Save Attempt");
   }
@@ -308,9 +318,90 @@ export default function NinjaPage() {
     refreshAttempts();
   }
 
+  function composeFrameThumbnail(): string {
+    const video = videoRef.current!;
+    const ann = canvasRef.current!;
+    const W = ann.width;
+    const H = ann.height;
+    const vw = video.videoWidth || W;
+    const vh = video.videoHeight || H;
+    const scale = Math.min(W / vw, H / vh);
+    const dw = vw * scale;
+    const dh = vh * scale;
+    const dx = (W - dw) / 2;
+    const dy = (H - dh) / 2;
+    const tw = 200;
+    const th = Math.max(1, Math.round(tw * (H / W)));
+    const tc = document.createElement("canvas");
+    tc.width = tw;
+    tc.height = th;
+    const tctx = tc.getContext("2d")!;
+    tctx.fillStyle = "#000";
+    tctx.fillRect(0, 0, tw, th);
+    const sx = tw / W;
+    const sy = th / H;
+    tctx.drawImage(video, dx * sx, dy * sy, dw * sx, dh * sy);
+    tctx.drawImage(ann, 0, 0, tw, th);
+    return tc.toDataURL("image/jpeg", 0.7);
+  }
+
+  function captureAndClear() {
+    const ann = annotationRef.current;
+    const video = videoRef.current;
+    if (!ann || !video) return;
+    const time = video.currentTime;
+    const editingIdx = currentFrameIdxRef.current;
+
+    if (ann.shapes.length === 0) {
+      // If we were viewing a snapshot and emptied it, remove it
+      if (editingIdx !== null) {
+        const next = framesRef.current.filter((_, i) => i !== editingIdx);
+        framesRef.current = next;
+        setFrames(next);
+        currentFrameIdxRef.current = null;
+        setCurrentFrameIdx(null);
+      }
+      return;
+    }
+
+    const thumbnail = composeFrameThumbnail();
+    const shapes = ann.getAnnotations();
+    const next = framesRef.current.slice();
+    const matchIdx = editingIdx !== null && editingIdx < next.length
+      ? editingIdx
+      : next.findIndex((f) => Math.abs(f.time - time) < 0.05);
+    if (matchIdx >= 0) next[matchIdx] = { time, shapes, thumbnail };
+    else next.push({ time, shapes, thumbnail });
+    next.sort((a, b) => a.time - b.time);
+    framesRef.current = next;
+    setFrames(next);
+    ann.clear();
+    currentFrameIdxRef.current = null;
+    setCurrentFrameIdx(null);
+  }
+
+  function loadSnapshotAtCurrentTime() {
+    const video = videoRef.current!;
+    const ann = annotationRef.current;
+    if (!ann || ann.shapes.length > 0) return;
+    const time = video.currentTime;
+    const idx = framesRef.current.findIndex((f) => Math.abs(f.time - time) < 0.05);
+    if (idx >= 0) {
+      ann.setAnnotations(framesRef.current[idx].shapes);
+      setCurrentFrameIdx(idx);
+    } else {
+      setCurrentFrameIdx(null);
+    }
+  }
+
   function handlePlay() {
     const video = videoRef.current!;
-    if (video.paused) video.play(); else video.pause();
+    if (video.paused) {
+      captureAndClear();
+      video.play();
+    } else {
+      video.pause();
+    }
   }
 
   function handleVideoPlay() {
@@ -322,6 +413,13 @@ export default function NinjaPage() {
     setPlaying(false);
     annotationRef.current?.enable();
     annotationRef.current?.resize();
+    loadSnapshotAtCurrentTime();
+  }
+
+  function handleVideoSeeked() {
+    const video = videoRef.current!;
+    if (!video.paused) return;
+    loadSnapshotAtCurrentTime();
   }
 
   function handleLoadedMetadata() {
@@ -332,13 +430,36 @@ export default function NinjaPage() {
   function handleFrameBack() {
     const video = videoRef.current!;
     video.pause();
+    captureAndClear();
     video.currentTime = Math.max(0, video.currentTime - 1 / 30);
   }
 
   function handleFrameForward() {
     const video = videoRef.current!;
     video.pause();
+    captureAndClear();
     video.currentTime = Math.min(video.duration, video.currentTime + 1 / 30);
+  }
+
+  function handleFrameThumbClick(idx: number) {
+    const video = videoRef.current!;
+    const ann = annotationRef.current!;
+    const frame = framesRef.current[idx];
+    if (!frame) return;
+    captureAndClear();
+    video.pause();
+    video.currentTime = frame.time;
+    ann.setAnnotations(frame.shapes);
+    setCurrentFrameIdx(idx);
+    setShowFrameGrid(false);
+  }
+
+  function handleFrameDelete(idx: number) {
+    setFrames((prev) => prev.filter((_, i) => i !== idx));
+    if (currentFrameIdxRef.current === idx) {
+      annotationRef.current?.clear();
+      setCurrentFrameIdx(null);
+    }
   }
 
   function handleSpeed(rate: number) {
@@ -356,12 +477,17 @@ export default function NinjaPage() {
     setView("player");
     setTimeout(() => {
       loadVideoBlob(attempt.video);
+      const initialFrames: FrameSnapshot[] = attempt.frames && attempt.frames.length > 0
+        ? attempt.frames.slice()
+        : (attempt.annotations && attempt.annotations.length > 0
+          ? [{ time: attempt.annotationTime ?? 0, shapes: attempt.annotations as Shape[], thumbnail: "" }]
+          : []);
+      setFrames(initialFrames);
       videoRef.current!.addEventListener("loadedmetadata", function onMeta() {
         videoRef.current!.removeEventListener("loadedmetadata", onMeta);
         if (attempt.annotationTime != null) videoRef.current!.currentTime = attempt.annotationTime;
         setTimeout(() => {
           annotationRef.current?.resize();
-          annotationRef.current?.setAnnotations(attempt.annotations as Shape[]);
         }, 50);
       });
     }, 0);
@@ -375,6 +501,8 @@ export default function NinjaPage() {
 
   async function handleSave() {
     if (!currentBlobRef.current) return;
+    // Capture any unsaved drawing into frames before persisting
+    captureAndClear();
     const attempt: Attempt = {
       id: currentIdRef.current || Date.now(),
       video: currentBlobRef.current,
@@ -382,6 +510,7 @@ export default function NinjaPage() {
       annotationTime: videoRef.current?.currentTime ?? 0,
       notes: notesRef.current?.value ?? "",
       createdAt: new Date().toISOString(),
+      frames: framesRef.current.slice(),
     };
     if (currentIdRef.current) {
       try {
@@ -490,6 +619,7 @@ export default function NinjaPage() {
               style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
+              onSeeked={handleVideoSeeked}
               onLoadedMetadata={handleLoadedMetadata}
             />
             <canvas
@@ -497,6 +627,40 @@ export default function NinjaPage() {
               style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", touchAction: "none" }}
             />
           </div>
+
+          {/* Frame thumbnail stack (bottom-right corner) */}
+          {frames.length > 0 && (
+            <button
+              onClick={() => setShowFrameGrid(true)}
+              style={{
+                position: "absolute", bottom: 10, right: 10, zIndex: 10,
+                padding: 0, background: "none", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "flex-end", gap: 4,
+              }}
+              aria-label={`Open frame grid (${frames.length} frames)`}
+            >
+              <span style={{
+                background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 12, fontWeight: 700,
+                padding: "3px 7px", borderRadius: 10, marginBottom: 4,
+              }}>{frames.length}</span>
+              <div style={{ position: "relative", width: 64, height: 36 }}>
+                {frames.slice(-3).map((f, i, arr) => (
+                  <img
+                    key={i}
+                    src={f.thumbnail || ""}
+                    alt=""
+                    style={{
+                      position: "absolute",
+                      top: (arr.length - 1 - i) * -3,
+                      left: (arr.length - 1 - i) * -3,
+                      width: 64, height: 36, objectFit: "cover",
+                      border: "2px solid #fff", borderRadius: 4, background: "#000",
+                    }}
+                  />
+                ))}
+              </div>
+            </button>
+          )}
         </div>
 
         {/* Playback + speed controls */}
@@ -546,6 +710,42 @@ export default function NinjaPage() {
           </button>
         </div>
       </div>
+      {/* Frame grid */}
+      {showFrameGrid && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", gap: 12, borderBottom: "1px solid #222" }}>
+            <button onClick={() => setShowFrameGrid(false)} style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 16, fontWeight: 600, padding: "6px 0", cursor: "pointer" }}>← Back</button>
+            <span style={{ fontSize: 15, fontWeight: 600, color: "#eee" }}>{frames.length} frame{frames.length === 1 ? "" : "s"}</span>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+            {frames.map((f, i) => (
+              <div key={i} style={{ position: "relative", background: "#1a1a1a", borderRadius: 8, overflow: "hidden" }}>
+                <button
+                  onClick={() => handleFrameThumbClick(i)}
+                  style={{ display: "block", width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer" }}
+                  aria-label={`Go to frame at ${f.time.toFixed(2)}s`}
+                >
+                  {f.thumbnail
+                    ? <img src={f.thumbnail} alt="" style={{ display: "block", width: "100%", aspectRatio: "16 / 9", objectFit: "cover", background: "#000" }} />
+                    : <div style={{ width: "100%", aspectRatio: "16 / 9", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", fontSize: 12 }}>no preview</div>}
+                  <div style={{ padding: "6px 8px", fontSize: 12, color: "#aaa", textAlign: "left" }}>{f.time.toFixed(2)}s</div>
+                </button>
+                <button
+                  onClick={() => handleFrameDelete(i)}
+                  aria-label="Delete frame"
+                  style={{
+                    position: "absolute", top: 6, right: 6, width: 26, height: 26,
+                    borderRadius: 13, border: "none", background: "rgba(0,0,0,0.75)",
+                    color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                  }}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Shape type menu */}
       {shapeMenu && (
         <div

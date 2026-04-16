@@ -10,6 +10,13 @@ export interface Attempt {
   annotationTime: number;
   notes: string;
   createdAt: string;
+  frames?: FrameSnapshot[];
+}
+
+export interface FrameSnapshot {
+  time: number;
+  shapes: Shape[];
+  thumbnail: string;
 }
 
 export interface Shape {
