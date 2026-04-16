@@ -25,6 +25,7 @@ export default function NinjaPage() {
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [playing, setPlaying] = useState(false);
   const [saveLabel, setSaveLabel] = useState("Save Attempt");
+  const [shapeMenu, setShapeMenu] = useState<{ index: number; x: number; y: number } | null>(null);
 
   // Camera / recording
   const [isRecording, setIsRecording] = useState(false);
@@ -74,6 +75,9 @@ export default function NinjaPage() {
       ac.onPinch = (z, px, py) => {
         applyTransform(z, px, py);
         ac.setZoomState(z, px, py);
+      };
+      ac.onShapeTap = (index, screenX, screenY) => {
+        setShapeMenu({ index, x: screenX, y: screenY });
       };
       annotationRef.current = ac;
     }
@@ -514,6 +518,54 @@ export default function NinjaPage() {
           </button>
         </div>
       </div>
+      {/* Shape type menu */}
+      {shapeMenu && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 100 }}
+          onClick={() => setShapeMenu(null)}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: Math.min(shapeMenu.x, window.innerWidth - 160),
+              top: Math.max(0, shapeMenu.y - 120),
+              background: "#222", borderRadius: 10, border: "2px solid #444",
+              padding: 4, minWidth: 120,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(["line", "arrow", "circle", "oval", "angle"] as const).map((type) => (
+              <button
+                key={type}
+                onClick={() => {
+                  annotationRef.current?.changeShapeType(shapeMenu.index, type);
+                  setShapeMenu(null);
+                }}
+                style={{
+                  display: "block", width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
+                  background: "none", color: "#eee", border: "none", borderRadius: 6,
+                  textAlign: "left", cursor: "pointer",
+                }}
+              >
+                {type.charAt(0).toUpperCase() + type.slice(1)}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                annotationRef.current?.deleteShape(shapeMenu.index);
+                setShapeMenu(null);
+              }}
+              style={{
+                display: "block", width: "100%", padding: "10px 14px", fontSize: 15, fontWeight: 600,
+                background: "none", color: "#ff4444", border: "none", borderRadius: 6,
+                textAlign: "left", cursor: "pointer", borderTop: "1px solid #333",
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
       {/* Permission help popup */}
       {showPermissionHelp && (
         <div style={{
