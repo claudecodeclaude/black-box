@@ -310,44 +310,35 @@ export class AnnotationCanvas {
     }
 
     // ── Angle: V-shape with bend ──
-    const nSamples = Math.max(12, Math.min(24, raw.length));
-    const sampled = this._sample(raw, nSamples);
-    if (sampled.length >= 5) {
+    // Test each raw point as a potential vertex using full arms (first→vertex→last)
+    if (raw.length >= 4) {
       let bestIdx = -1;
       let bestAngle = Math.PI;
 
-      // Adaptive window: smaller for short strokes
-      const span = sampled.length <= 10 ? 1 : sampled.length <= 16 ? 2 : 3;
-      const lo = Math.max(span, Math.floor(sampled.length * 0.15));
-      const hi = Math.min(sampled.length - span, Math.ceil(sampled.length * 0.85));
+      const lo = Math.max(1, Math.floor(raw.length * 0.1));
+      const hi = Math.min(raw.length - 1, Math.ceil(raw.length * 0.9));
 
       for (let i = lo; i < hi; i++) {
-        const a = sampled[i - span];
-        const b = sampled[i];
-        const c = sampled[i + span];
-        const ba = { x: a.x - b.x, y: a.y - b.y };
-        const bc = { x: c.x - b.x, y: c.y - b.y };
-        const dot = ba.x * bc.x + ba.y * bc.y;
-        const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
-        if (mag > 0.00001) {
+        const v = raw[i];
+        const va = { x: first.x - v.x, y: first.y - v.y };
+        const vb = { x: last.x - v.x, y: last.y - v.y };
+        const dot = va.x * vb.x + va.y * vb.y;
+        const mag = Math.sqrt(va.x ** 2 + va.y ** 2) * Math.sqrt(vb.x ** 2 + vb.y ** 2);
+        if (mag > 0) {
           const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
           if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
         }
       }
 
-      // Accept angles up to ~175°
-      if (bestAngle < Math.PI * 0.97 && bestIdx >= 0) {
-        const arm1 = sampled.slice(0, bestIdx + 1);
-        const arm2 = sampled.slice(bestIdx);
-
-        if (this._segmentStraightness(arm1) > 0.6 && this._segmentStraightness(arm2) > 0.6) {
-          return {
-            type: "angle",
-            x1: sampled[0].x, y1: sampled[0].y,
-            x2: sampled[bestIdx].x, y2: sampled[bestIdx].y,
-            x3: sampled[sampled.length - 1].x, y3: sampled[sampled.length - 1].y,
-          };
-        }
+      // Accept angles up to ~170° — a truly straight line will be ~180°
+      if (bestAngle < Math.PI * 0.94 && bestIdx >= 0) {
+        const vertex = raw[bestIdx];
+        return {
+          type: "angle",
+          x1: first.x, y1: first.y,
+          x2: vertex.x, y2: vertex.y,
+          x3: last.x, y3: last.y,
+        };
       }
     }
 
