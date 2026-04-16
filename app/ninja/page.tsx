@@ -56,16 +56,6 @@ export default function NinjaPage() {
   const zoomRef = useRef(1);
   const panXRef = useRef(0);
   const panYRef = useRef(0);
-  const pinchStateRef = useRef({
-    active: false,
-    initialDist: 0,
-    initialZoom: 1,
-    initialPanX: 0,
-    initialPanY: 0,
-    centerX: 0,
-    centerY: 0,
-  });
-  const singleTouchRef = useRef({ active: false, lastX: 0, lastY: 0 });
 
   function applyTransform(z: number, px: number, py: number) {
     zoomRef.current = z;
@@ -83,7 +73,12 @@ export default function NinjaPage() {
   // Init annotation canvas
   useEffect(() => {
     if (canvasRef.current && videoRef.current) {
-      annotationRef.current = new AnnotationCanvas(canvasRef.current, videoRef.current);
+      const ac = new AnnotationCanvas(canvasRef.current, videoRef.current);
+      ac.onPinch = (z, px, py) => {
+        applyTransform(z, px, py);
+        ac.setZoomState(z, px, py);
+      };
+      annotationRef.current = ac;
     }
   }, []);
 
@@ -170,108 +165,7 @@ export default function NinjaPage() {
     };
   }, []);
 
-  // Pinch-to-zoom touch handler on the video container
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    function touchDist(touches: TouchList) {
-      const dx = touches[0].clientX - touches[1].clientX;
-      const dy = touches[0].clientY - touches[1].clientY;
-      return Math.sqrt(dx * dx + dy * dy);
-    }
-
-    function onTouchStart(e: TouchEvent) {
-      if (e.touches.length === 2) {
-        e.preventDefault();
-        // Tell canvas to stop drawing — fingers are pinching, not drawing
-        annotationRef.current?.setMultiTouch(true);
-        const rect = container!.getBoundingClientRect();
-        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
-        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
-        pinchStateRef.current = {
-          active: true,
-          initialDist: touchDist(e.touches),
-          initialZoom: zoomRef.current,
-          initialPanX: panXRef.current,
-          initialPanY: panYRef.current,
-          centerX: cx,
-          centerY: cy,
-        };
-        singleTouchRef.current.active = false;
-      } else if (e.touches.length === 1 && zoomRef.current > 1 && videoRef.current?.paused === false) {
-        // Pan only while video is playing (not while drawing)
-        singleTouchRef.current = {
-          active: true,
-          lastX: e.touches[0].clientX,
-          lastY: e.touches[0].clientY,
-        };
-      }
-    }
-
-    function onTouchMove(e: TouchEvent) {
-      if (e.touches.length === 2 && pinchStateRef.current.active) {
-        e.preventDefault();
-        const p = pinchStateRef.current;
-        const W = container!.clientWidth;
-        const H = container!.clientHeight;
-        const newZoom = Math.min(Math.max(p.initialZoom * touchDist(e.touches) / p.initialDist, 1), 5);
-
-        // Track two-finger drag for panning
-        const currentCX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - container!.getBoundingClientRect().left;
-        const currentCY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - container!.getBoundingClientRect().top;
-        const dragX = currentCX - p.centerX;
-        const dragY = currentCY - p.centerY;
-
-        // Keep the pinch center fixed in content space + drag offset
-        const contentX = (p.centerX - p.initialPanX) / p.initialZoom;
-        const contentY = (p.centerY - p.initialPanY) / p.initialZoom;
-        let newPanX = p.centerX - contentX * newZoom + dragX;
-        let newPanY = p.centerY - contentY * newZoom + dragY;
-
-        // Clamp so video doesn't go out of bounds
-        newPanX = Math.min(0, Math.max(newPanX, W * (1 - newZoom)));
-        newPanY = Math.min(0, Math.max(newPanY, H * (1 - newZoom)));
-
-        applyTransform(newZoom, newPanX, newPanY);
-      } else if (e.touches.length === 1 && singleTouchRef.current.active) {
-        e.preventDefault();
-        const s = singleTouchRef.current;
-        const dx = e.touches[0].clientX - s.lastX;
-        const dy = e.touches[0].clientY - s.lastY;
-        s.lastX = e.touches[0].clientX;
-        s.lastY = e.touches[0].clientY;
-
-        const W = container!.clientWidth;
-        const H = container!.clientHeight;
-        const z = zoomRef.current;
-        const newPanX = Math.min(0, Math.max(panXRef.current + dx, W * (1 - z)));
-        const newPanY = Math.min(0, Math.max(panYRef.current + dy, H * (1 - z)));
-        applyTransform(z, newPanX, newPanY);
-      }
-    }
-
-    function onTouchEnd(e: TouchEvent) {
-      if (e.touches.length < 2) {
-        pinchStateRef.current.active = false;
-        // Re-enable drawing once pinch is released
-        annotationRef.current?.setMultiTouch(false);
-      }
-      if (e.touches.length === 0) {
-        singleTouchRef.current.active = false;
-        if (zoomRef.current < 1.05) resetZoom();
-      }
-    }
-
-    container.addEventListener("touchstart", onTouchStart, { passive: false });
-    container.addEventListener("touchmove", onTouchMove, { passive: false });
-    container.addEventListener("touchend", onTouchEnd);
-    return () => {
-      container.removeEventListener("touchstart", onTouchStart);
-      container.removeEventListener("touchmove", onTouchMove);
-      container.removeEventListener("touchend", onTouchEnd);
-    };
-  }, []);
+  // Pinch-to-zoom is now handled by AnnotationCanvas via the onPinch callback
 
   // --- Camera ---
 

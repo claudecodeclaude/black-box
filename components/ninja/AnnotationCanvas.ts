@@ -1,5 +1,7 @@
 import type { Shape } from "./storage";
 
+export type PinchCallback = (zoom: number, panX: number, panY: number) => void;
+
 export class AnnotationCanvas {
   canvas: HTMLCanvasElement;
   video: HTMLVideoElement;
@@ -15,6 +17,11 @@ export class AnnotationCanvas {
   multiTouch: boolean;
   color: string;
   lineWidth: number;
+  onPinch: PinchCallback | null;
+  private _pinch: { active: boolean; initialDist: number; initialZoom: number; initialPanX: number; initialPanY: number; centerX: number; centerY: number };
+  private _zoom: number;
+  private _panX: number;
+  private _panY: number;
 
   constructor(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
     this.canvas = canvas;
@@ -31,14 +38,99 @@ export class AnnotationCanvas {
     this.multiTouch = false;
     this.color = "#ff2222";
     this.lineWidth = 3;
+    this.onPinch = null;
+    this._pinch = { active: false, initialDist: 0, initialZoom: 1, initialPanX: 0, initialPanY: 0, centerX: 0, centerY: 0 };
+    this._zoom = 1;
+    this._panX = 0;
+    this._panY = 0;
 
     canvas.addEventListener("pointerdown", (e) => this._onDown(e));
     canvas.addEventListener("pointermove", (e) => this._onMove(e));
     canvas.addEventListener("pointerup", (e) => this._onUp(e));
     canvas.addEventListener("pointercancel", (e) => this._onUp(e));
-    // Prevent touch scrolling when the canvas is enabled
-    canvas.addEventListener("touchstart", (e) => { if (this.enabled) e.preventDefault(); }, { passive: false });
-    canvas.addEventListener("touchmove", (e) => { if (this.enabled) e.preventDefault(); }, { passive: false });
+
+    canvas.addEventListener("touchstart", (e) => this._onTouchStart(e), { passive: false });
+    canvas.addEventListener("touchmove", (e) => this._onTouchMove(e), { passive: false });
+    canvas.addEventListener("touchend", (e) => this._onTouchEnd(e));
+  }
+
+  private _touchDist(touches: TouchList) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  private _onTouchStart(e: TouchEvent) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      this.multiTouch = true;
+      if (this.drawing) { this.drawing = false; this.redraw(); }
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      this._pinch = {
+        active: true,
+        initialDist: this._touchDist(e.touches),
+        initialZoom: this._zoom,
+        initialPanX: this._panX,
+        initialPanY: this._panY,
+        centerX: cx,
+        centerY: cy,
+      };
+    } else if (e.touches.length === 1 && this.enabled) {
+      e.preventDefault();
+    }
+  }
+
+  private _onTouchMove(e: TouchEvent) {
+    if (e.touches.length === 2 && this._pinch.active) {
+      e.preventDefault();
+      const p = this._pinch;
+      const container = this.canvas.parentElement!;
+      const W = container.clientWidth;
+      const H = container.clientHeight;
+      const newZoom = Math.min(Math.max(p.initialZoom * this._touchDist(e.touches) / p.initialDist, 1), 5);
+
+      const rect = this.canvas.getBoundingClientRect();
+      const currentCX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const currentCY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      const dragX = currentCX - p.centerX;
+      const dragY = currentCY - p.centerY;
+
+      const contentX = (p.centerX - p.initialPanX) / p.initialZoom;
+      const contentY = (p.centerY - p.initialPanY) / p.initialZoom;
+      let newPanX = p.centerX - contentX * newZoom + dragX;
+      let newPanY = p.centerY - contentY * newZoom + dragY;
+
+      newPanX = Math.min(0, Math.max(newPanX, W * (1 - newZoom)));
+      newPanY = Math.min(0, Math.max(newPanY, H * (1 - newZoom)));
+
+      this._zoom = newZoom;
+      this._panX = newPanX;
+      this._panY = newPanY;
+      if (this.onPinch) this.onPinch(newZoom, newPanX, newPanY);
+    } else if (e.touches.length === 1 && this.enabled) {
+      e.preventDefault();
+    }
+  }
+
+  private _onTouchEnd(e: TouchEvent) {
+    if (e.touches.length < 2) {
+      this._pinch.active = false;
+      this.multiTouch = false;
+      if (this._zoom < 1.05) {
+        this._zoom = 1;
+        this._panX = 0;
+        this._panY = 0;
+        if (this.onPinch) this.onPinch(1, 0, 0);
+      }
+    }
+  }
+
+  setZoomState(zoom: number, panX: number, panY: number) {
+    this._zoom = zoom;
+    this._panX = panX;
+    this._panY = panY;
   }
 
   _getPos(e: PointerEvent) {
