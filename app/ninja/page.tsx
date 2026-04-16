@@ -217,11 +217,17 @@ export default function NinjaPage() {
         const H = container!.clientHeight;
         const newZoom = Math.min(Math.max(p.initialZoom * touchDist(e.touches) / p.initialDist, 1), 5);
 
-        // Keep the pinch center fixed in content space
+        // Track two-finger drag for panning
+        const currentCX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - container!.getBoundingClientRect().left;
+        const currentCY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - container!.getBoundingClientRect().top;
+        const dragX = currentCX - p.centerX;
+        const dragY = currentCY - p.centerY;
+
+        // Keep the pinch center fixed in content space + drag offset
         const contentX = (p.centerX - p.initialPanX) / p.initialZoom;
         const contentY = (p.centerY - p.initialPanY) / p.initialZoom;
-        let newPanX = p.centerX - contentX * newZoom;
-        let newPanY = p.centerY - contentY * newZoom;
+        let newPanX = p.centerX - contentX * newZoom + dragX;
+        let newPanY = p.centerY - contentY * newZoom + dragY;
 
         // Clamp so video doesn't go out of bounds
         newPanX = Math.min(0, Math.max(newPanX, W * (1 - newZoom)));
