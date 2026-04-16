@@ -37,6 +37,7 @@ export default function NinjaPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const cameraContainerRef = useRef<HTMLDivElement>(null);
   const cameraZoomRef = useRef({ zoom: 1, panX: 0, panY: 0 });
   const cameraPinchRef = useRef({ active: false, initialDist: 0, initialZoom: 1, initialPanX: 0, initialPanY: 0, centerX: 0, centerY: 0 });
 
@@ -102,8 +103,9 @@ export default function NinjaPage() {
 
   // Pinch-to-zoom on camera preview
   useEffect(() => {
-    const el = cameraPreviewRef.current;
-    if (!el) return;
+    const container = cameraContainerRef.current;
+    const vid = cameraPreviewRef.current;
+    if (!container || !vid) return;
 
     function touchDist(touches: TouchList) {
       const dx = touches[0].clientX - touches[1].clientX;
@@ -113,7 +115,7 @@ export default function NinjaPage() {
 
     function applyCameraTransform(z: number, px: number, py: number) {
       cameraZoomRef.current = { zoom: z, panX: px, panY: py };
-      el!.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
+      vid!.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
     }
 
     function onTouchStart(e: TouchEvent) {
@@ -158,13 +160,13 @@ export default function NinjaPage() {
       }
     }
 
-    el.addEventListener("touchstart", onTouchStart, { passive: false });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
+    container.addEventListener("touchstart", onTouchStart, { passive: false });
+    container.addEventListener("touchmove", onTouchMove, { passive: false });
+    container.addEventListener("touchend", onTouchEnd);
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", onTouchEnd);
     };
   }, []);
 
@@ -537,7 +539,9 @@ export default function NinjaPage() {
 
       {/* ── Camera View ── */}
       <div style={{ display: view === "camera" ? "block" : "none", position: "fixed", inset: 0, background: "#000", zIndex: 50 }}>
-        <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: recordedBlob ? "none" : "block", transformOrigin: "0 0" }} />
+        <div ref={cameraContainerRef} style={{ width: "100%", height: "100%", overflow: "hidden", touchAction: "none", display: recordedBlob ? "none" : "block" }}>
+          <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", transformOrigin: "0 0" }} />
+        </div>
         <video ref={reviewVideoRef} playsInline controls style={{ width: "100%", height: "100%", objectFit: "contain", display: recordedBlob ? "block" : "none" }} />
 
         {/* Fixed header */}
