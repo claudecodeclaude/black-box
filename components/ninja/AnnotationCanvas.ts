@@ -183,7 +183,7 @@ export class AnnotationCanvas {
 
     ctx.save();
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = this.lineWidth;
+    ctx.lineWidth = this.lineWidth / this._zoom;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.globalAlpha = 0.4;
@@ -242,7 +242,7 @@ export class AnnotationCanvas {
   private _recognize(raw: Point[]): Shape | null {
     if (raw.length < 3) return null;
     const pathLen = this._pathLength(raw);
-    if (pathLen < 0.015) return null;
+    if (pathLen < 0.015 / this._zoom) return null;
 
     const first = raw[0];
     const last = raw[raw.length - 1];
@@ -378,7 +378,7 @@ export class AnnotationCanvas {
     const y2 = shape.y2 * h;
 
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = this.lineWidth;
+    ctx.lineWidth = this.lineWidth / this._zoom;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
@@ -393,7 +393,7 @@ export class AnnotationCanvas {
       ctx.lineTo(x2, y2);
       ctx.stroke();
       const angle = Math.atan2(y2 - y1, x2 - x1);
-      const headLen = 14;
+      const headLen = 14 / this._zoom;
       ctx.beginPath();
       ctx.moveTo(x2, y2);
       ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
@@ -436,20 +436,20 @@ export class AnnotationCanvas {
       const arcSweep = arcEnd - arcStart;
       if (arcSweep < Math.PI) {
         ctx.beginPath();
-        ctx.arc(x2, y2, 20, arcStart, arcEnd);
+        ctx.arc(x2, y2, 20 / this._zoom, arcStart, arcEnd);
         ctx.stroke();
       } else {
         ctx.beginPath();
-        ctx.arc(x2, y2, 20, arcEnd, arcStart + Math.PI * 2);
+        ctx.arc(x2, y2, 20 / this._zoom, arcEnd, arcStart + Math.PI * 2);
         ctx.stroke();
       }
 
       // Draw degree text
       const midAngle = a1 + sweep / 2;
-      const textR = 36;
+      const textR = 36 / this._zoom;
       const tx = x2 + Math.cos(midAngle) * textR;
       const ty = y2 + Math.sin(midAngle) * textR;
-      ctx.font = "bold 14px sans-serif";
+      ctx.font = `bold ${14 / this._zoom}px sans-serif`;
       ctx.fillStyle = this.color;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
