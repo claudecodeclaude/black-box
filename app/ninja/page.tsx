@@ -253,14 +253,8 @@ export default function NinjaPage() {
     };
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mimeType || "video/mp4" });
-      setRecordedBlob(blob);
       setIsRecording(false);
-      setTimeout(() => {
-        if (reviewVideoRef.current) {
-          reviewVideoRef.current.src = URL.createObjectURL(blob);
-          reviewVideoRef.current.play();
-        }
-      }, 50);
+      loadIntoPlayer(blob);
     };
     recorder.start();
     setIsRecording(true);
