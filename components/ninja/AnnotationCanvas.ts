@@ -310,23 +310,26 @@ export class AnnotationCanvas {
     }
 
     // ── Angle: V-shape with bend ──
-    const sampled = this._sample(raw, 24);
-    if (sampled.length >= 7) {
+    const nSamples = Math.max(12, Math.min(24, raw.length));
+    const sampled = this._sample(raw, nSamples);
+    if (sampled.length >= 5) {
       let bestIdx = -1;
       let bestAngle = Math.PI;
 
-      const lo = Math.max(3, Math.floor(sampled.length * 0.2));
-      const hi = Math.min(sampled.length - 3, Math.ceil(sampled.length * 0.8));
+      // Adaptive window: smaller for short strokes
+      const span = sampled.length <= 10 ? 1 : sampled.length <= 16 ? 2 : 3;
+      const lo = Math.max(span, Math.floor(sampled.length * 0.15));
+      const hi = Math.min(sampled.length - span, Math.ceil(sampled.length * 0.85));
 
       for (let i = lo; i < hi; i++) {
-        const a = sampled[i - 3];
+        const a = sampled[i - span];
         const b = sampled[i];
-        const c = sampled[i + 3];
+        const c = sampled[i + span];
         const ba = { x: a.x - b.x, y: a.y - b.y };
         const bc = { x: c.x - b.x, y: c.y - b.y };
         const dot = ba.x * bc.x + ba.y * bc.y;
         const mag = Math.sqrt(ba.x ** 2 + ba.y ** 2) * Math.sqrt(bc.x ** 2 + bc.y ** 2);
-        if (mag > 0.0001) {
+        if (mag > 0.00001) {
           const angle = Math.acos(Math.max(-1, Math.min(1, dot / mag)));
           if (angle < bestAngle) { bestAngle = angle; bestIdx = i; }
         }
@@ -336,12 +339,8 @@ export class AnnotationCanvas {
       if (bestAngle < Math.PI * 0.97 && bestIdx >= 0) {
         const arm1 = sampled.slice(0, bestIdx + 1);
         const arm2 = sampled.slice(bestIdx);
-        const arm1Len = this._pathLength(arm1);
-        const arm2Len = this._pathLength(arm2);
-        const minArm = pathLen * 0.1;
 
-        if (arm1Len > minArm && arm2Len > minArm &&
-            this._segmentStraightness(arm1) > 0.7 && this._segmentStraightness(arm2) > 0.7) {
+        if (this._segmentStraightness(arm1) > 0.6 && this._segmentStraightness(arm2) > 0.6) {
           return {
             type: "angle",
             x1: sampled[0].x, y1: sampled[0].y,
