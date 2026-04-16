@@ -248,30 +248,47 @@ export class AnnotationCanvas {
     const last = raw[raw.length - 1];
     const closeDist = this._dist(first, last);
 
-    // ── Circle: closed loop ──
+    // ── Closed loop → circle or oval ──
     if (closeDist < pathLen * 0.3 && pathLen > 0.05) {
-      let cx = 0, cy = 0;
-      for (const p of raw) { cx += p.x; cy += p.y; }
-      cx /= raw.length;
-      cy /= raw.length;
-
-      let avgR = 0;
-      for (const p of raw) avgR += this._dist(p, { x: cx, y: cy });
-      avgR /= raw.length;
-
-      let variance = 0;
+      // Compute bounding box center and radii
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (const p of raw) {
-        const r = this._dist(p, { x: cx, y: cy });
-        variance += (r - avgR) ** 2;
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
       }
-      const stdDev = Math.sqrt(variance / raw.length);
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const rx = (maxX - minX) / 2;
+      const ry = (maxY - minY) / 2;
 
-      if (stdDev / avgR < 0.35) {
-        return { type: "circle", x1: cx, y1: cy, x2: cx + avgR, y2: cy };
+      if (rx > 0.01 && ry > 0.01) {
+        // Check how well points fit the ellipse
+        let totalErr = 0;
+        const avgR = (rx + ry) / 2;
+        for (const p of raw) {
+          // Normalized distance from ellipse (1.0 = on the ellipse)
+          const nx = (p.x - cx) / rx;
+          const ny = (p.y - cy) / ry;
+          const ellipseDist = Math.sqrt(nx * nx + ny * ny);
+          totalErr += Math.abs(ellipseDist - 1);
+        }
+        const avgErr = totalErr / raw.length;
+
+        if (avgErr < 0.4) {
+          // If roughly circular (aspect ratio close to 1), use circle
+          const aspect = Math.max(rx, ry) / Math.min(rx, ry);
+          if (aspect < 1.3) {
+            return { type: "circle", x1: cx, y1: cy, x2: cx + avgR, y2: cy };
+          }
+          // Otherwise oval: encode center + radii (x2 = rx, y2 = ry)
+          return { type: "oval", x1: cx, y1: cy, x2: rx, y2: ry };
+        }
       }
     }
 
-    // ── Arrow: straight stroke that hooks back at the end ──
+    // ── Arrow: straight stroke with any hook/flick back at the end ──
     // Find the point furthest from start — that's the arrow tip
     let maxD = 0, tipIdx = 0;
     for (let i = 0; i < raw.length; i++) {
@@ -279,23 +296,20 @@ export class AnnotationCanvas {
       if (d > maxD) { maxD = d; tipIdx = i; }
     }
 
-    // Arrow if: tip is NOT the last point (stroke came back after the tip)
-    // and the path to the tip is roughly straight
-    if (tipIdx < raw.length - 3) {
+    // Arrow if: the tip is past the halfway point, is NOT the very last point
+    // (meaning the stroke continued/hooked back after reaching the tip),
+    // and the path from start to tip is reasonably straight
+    if (tipIdx >= raw.length * 0.4 && tipIdx < raw.length - 1) {
       const toTip = raw.slice(0, tipIdx + 1);
-      const tailLen = this._pathLength(raw.slice(tipIdx));
       const tipStraightness = this._segmentStraightness(toTip);
 
-      // Tail must be substantial (> 5% of total) but not too long (< 45%)
-      // and the shaft to the tip must be straight
-      if (tipStraightness > 0.8 && tailLen > pathLen * 0.05 && tailLen < pathLen * 0.45) {
+      if (tipStraightness > 0.75) {
         const tip = raw[tipIdx];
         return { type: "arrow", x1: first.x, y1: first.y, x2: tip.x, y2: tip.y };
       }
     }
 
     // ── Angle: V-shape with sharp bend ──
-    // Only check if the overall stroke is NOT very straight
     const overallStraightness = closeDist / pathLen;
     if (overallStraightness < 0.9) {
       const sampled = this._sample(raw, 24);
@@ -303,7 +317,6 @@ export class AnnotationCanvas {
         let bestIdx = -1;
         let bestAngle = Math.PI;
 
-        // Only look for vertex in the middle 60% of the stroke
         const lo = Math.max(3, Math.floor(sampled.length * 0.2));
         const hi = Math.min(sampled.length - 3, Math.ceil(sampled.length * 0.8));
 
@@ -321,13 +334,12 @@ export class AnnotationCanvas {
           }
         }
 
-        // Sharp bend (< 120°) with both arms straight and substantial
         if (bestAngle < Math.PI * 0.67 && bestIdx >= 0) {
           const arm1 = sampled.slice(0, bestIdx + 1);
           const arm2 = sampled.slice(bestIdx);
           const arm1Len = this._pathLength(arm1);
           const arm2Len = this._pathLength(arm2);
-          const minArm = pathLen * 0.2; // each arm must be at least 20% of total
+          const minArm = pathLen * 0.2;
 
           if (arm1Len > minArm && arm2Len > minArm &&
               this._segmentStraightness(arm1) > 0.85 && this._segmentStraightness(arm2) > 0.85) {
@@ -394,6 +406,13 @@ export class AnnotationCanvas {
       const r = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
       ctx.beginPath();
       ctx.arc(x1, y1, r, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (shape.type === "oval") {
+      // x1,y1 = center (normalized), x2 = rx (normalized), y2 = ry (normalized)
+      const rx = shape.x2 * w;
+      const ry = shape.y2 * h;
+      ctx.beginPath();
+      ctx.ellipse(x1, y1, rx, ry, 0, 0, Math.PI * 2);
       ctx.stroke();
     } else if (shape.type === "angle" && shape.x3 != null && shape.y3 != null) {
       const x3 = shape.x3 * w;

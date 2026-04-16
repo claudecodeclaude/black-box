@@ -13,7 +13,7 @@ export interface Attempt {
 }
 
 export interface Shape {
-  type: "line" | "arrow" | "circle" | "angle";
+  type: "line" | "arrow" | "circle" | "angle" | "oval";
   x1: number;
   y1: number;
   x2: number;
