@@ -462,20 +462,20 @@ export default function NinjaPage() {
       </div>
 
       {/* ── Camera View ── */}
-      <div style={{ display: view === "camera" ? "block" : "none" }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "10px 16px", gap: 12 }}>
-          <button onClick={stopCamera} style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 16, fontWeight: 600, padding: "8px 0", cursor: "pointer" }}>← Back</button>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>{recordedBlob ? "Review" : "Camera"}</span>
+      <div style={{ display: view === "camera" ? "flex" : "none", flexDirection: "column", height: "100dvh", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "6px 12px", gap: 8 }}>
+          <button onClick={stopCamera} style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 15, fontWeight: 600, padding: "6px 0", cursor: "pointer" }}>← Back</button>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>{recordedBlob ? "Review" : "Camera"}</span>
         </div>
 
-        <div style={{ display: recordedBlob ? "none" : "block", background: "#000", lineHeight: 0 }}>
-          <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", display: "block" }} />
+        <div style={{ flex: 1, minHeight: 0, background: "#000", lineHeight: 0, overflow: "hidden", display: recordedBlob ? "none" : "block" }}>
+          <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         </div>
-        <div style={{ display: recordedBlob ? "block" : "none", background: "#000", lineHeight: 0 }}>
-          <video ref={reviewVideoRef} playsInline controls style={{ width: "100%", display: "block" }} />
+        <div style={{ flex: 1, minHeight: 0, background: "#000", lineHeight: 0, overflow: "hidden", display: recordedBlob ? "block" : "none" }}>
+          <video ref={reviewVideoRef} playsInline controls style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
         </div>
 
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: "8px 12px" }}>
           {!recordedBlob ? (
             !isRecording
               ? <button onClick={startRecording} style={{ ...uploadBtnStyle, background: "#cc2222" }}>Start Recording</button>
