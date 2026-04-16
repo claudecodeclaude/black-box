@@ -25,6 +25,8 @@ export class AnnotationCanvas {
   private _panY: number;
   private _tapStart: { x: number; y: number; time: number; screenX: number; screenY: number } | null;
   private _didMove: boolean;
+  private _longPressTimer: ReturnType<typeof setTimeout> | null;
+  private _dragging: { index: number; lastX: number; lastY: number } | null;
 
   constructor(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
     this.canvas = canvas;
@@ -46,6 +48,8 @@ export class AnnotationCanvas {
     this._panY = 0;
     this._tapStart = null;
     this._didMove = false;
+    this._longPressTimer = null;
+    this._dragging = null;
 
     canvas.addEventListener("pointerdown", (e) => this._onDown(e));
     canvas.addEventListener("pointermove", (e) => this._onMove(e));
@@ -69,6 +73,8 @@ export class AnnotationCanvas {
     if (e.touches.length === 2) {
       e.preventDefault();
       this.multiTouch = true;
+      if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
+      if (this._dragging) { this._dragging = null; this.redraw(); }
       if (this.drawing) { this.drawing = false; this._strokePoints = []; this.redraw(); }
       const rect = this.canvas.getBoundingClientRect();
       const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
@@ -167,20 +173,46 @@ export class AnnotationCanvas {
     this._didMove = false;
     this._strokePoints = [pos];
     this.canvas.setPointerCapture(e.pointerId);
+
+    // If pointer landed on a shape, start a long-press timer to enter drag mode
+    const hitIdx = this._hitTest(pos);
+    if (hitIdx >= 0) {
+      this._longPressTimer = setTimeout(() => {
+        this._longPressTimer = null;
+        this.drawing = false;
+        this._strokePoints = [];
+        this._dragging = { index: hitIdx, lastX: pos.x, lastY: pos.y };
+        if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(30);
+        this.redraw();
+      }, 450);
+    }
   }
 
   _onMove(e: PointerEvent) {
     if (!this._tapStart || this.multiTouch) return;
     e.preventDefault();
     const pos = this._getPos(e);
+
+    // Drag mode: translate shape by delta from last position
+    if (this._dragging) {
+      const dx = pos.x - this._dragging.lastX;
+      const dy = pos.y - this._dragging.lastY;
+      this._translateShape(this._dragging.index, dx, dy);
+      this._dragging.lastX = pos.x;
+      this._dragging.lastY = pos.y;
+      this.redraw();
+      return;
+    }
+
     const dx = pos.x - this._tapStart.x;
     const dy = pos.y - this._tapStart.y;
     const moveDist = Math.sqrt(dx * dx + dy * dy);
 
-    // Once moved past threshold, commit to drawing
+    // Once moved past threshold, commit to drawing (and cancel any pending long-press)
     if (moveDist > 0.005 / this._zoom) {
       this._didMove = true;
       this.drawing = true;
+      if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
     }
 
     if (this.drawing) {
@@ -191,6 +223,18 @@ export class AnnotationCanvas {
   }
 
   _onUp(e: PointerEvent) {
+    if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
+
+    // End drag mode
+    if (this._dragging) {
+      this._dragging = null;
+      this._tapStart = null;
+      this.drawing = false;
+      this._strokePoints = [];
+      this.redraw();
+      return;
+    }
+
     if (!this._tapStart) return;
     const wasTap = !this._didMove && (Date.now() - this._tapStart.time < 300);
 
@@ -531,8 +575,40 @@ export class AnnotationCanvas {
     const w = this.canvas.width / dpr;
     const h = this.canvas.height / dpr;
     this.ctx.clearRect(0, 0, w, h);
-    for (const shape of this.shapes) {
-      this._drawShape(this.ctx, shape);
+    for (let i = 0; i < this.shapes.length; i++) {
+      if (this._dragging?.index === i) {
+        this.ctx.save();
+        this.ctx.shadowColor = "#fff";
+        this.ctx.shadowBlur = 18;
+        this._drawShape(this.ctx, this.shapes[i]);
+        this.ctx.restore();
+      } else {
+        this._drawShape(this.ctx, this.shapes[i]);
+      }
+    }
+  }
+
+  private _translateShape(index: number, dx: number, dy: number) {
+    const shape = this.shapes[index];
+    if (!shape) return;
+    shape.x1 += dx;
+    shape.y1 += dy;
+    // For oval, x2/y2 are radii — only the center moves.
+    if (shape.type !== "oval") {
+      shape.x2 += dx;
+      shape.y2 += dy;
+    }
+    if (shape.x3 != null && shape.y3 != null) {
+      shape.x3 += dx;
+      shape.y3 += dy;
+    }
+    // Translate raw stroke points so future type-changes still fit
+    const raw = this._rawStrokes[index];
+    if (raw) {
+      for (const p of raw) {
+        p.x += dx;
+        p.y += dy;
+      }
     }
   }
 
