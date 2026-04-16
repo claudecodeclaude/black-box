@@ -191,7 +191,7 @@ export default function NinjaPage() {
     setShowPermissionHelp(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: true,
       });
       streamRef.current = stream;
@@ -214,7 +214,10 @@ export default function NinjaPage() {
     if (!streamRef.current) return;
     chunksRef.current = [];
     const mimeType = getBestMimeType();
-    const recorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+    const recorder = new MediaRecorder(streamRef.current, {
+      ...(mimeType ? { mimeType } : {}),
+      videoBitsPerSecond: 8_000_000,
+    });
     recorderRef.current = recorder;
 
     recorder.ondataavailable = (e) => {
