@@ -37,6 +37,8 @@ export default function NinjaPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const cameraZoomRef = useRef({ zoom: 1, panX: 0, panY: 0 });
+  const cameraPinchRef = useRef({ active: false, initialDist: 0, initialZoom: 1, initialPanX: 0, initialPanY: 0, centerX: 0, centerY: 0 });
 
   // Player
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -96,6 +98,74 @@ export default function NinjaPage() {
     const onResize = () => annotationRef.current?.resize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Pinch-to-zoom on camera preview
+  useEffect(() => {
+    const el = cameraPreviewRef.current;
+    if (!el) return;
+
+    function touchDist(touches: TouchList) {
+      const dx = touches[0].clientX - touches[1].clientX;
+      const dy = touches[0].clientY - touches[1].clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function applyCameraTransform(z: number, px: number, py: number) {
+      cameraZoomRef.current = { zoom: z, panX: px, panY: py };
+      el!.style.transform = `translate(${px}px, ${py}px) scale(${z})`;
+    }
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const z = cameraZoomRef.current;
+        cameraPinchRef.current = {
+          active: true,
+          initialDist: touchDist(e.touches),
+          initialZoom: z.zoom,
+          initialPanX: z.panX,
+          initialPanY: z.panY,
+          centerX: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+          centerY: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        };
+      }
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (e.touches.length === 2 && cameraPinchRef.current.active) {
+        e.preventDefault();
+        const p = cameraPinchRef.current;
+        const newZoom = Math.min(Math.max(p.initialZoom * touchDist(e.touches) / p.initialDist, 1), 5);
+        const contentX = (p.centerX - p.initialPanX) / p.initialZoom;
+        const contentY = (p.centerY - p.initialPanY) / p.initialZoom;
+        let newPanX = p.centerX - contentX * newZoom;
+        let newPanY = p.centerY - contentY * newZoom;
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+        newPanX = Math.min(0, Math.max(newPanX, W * (1 - newZoom)));
+        newPanY = Math.min(0, Math.max(newPanY, H * (1 - newZoom)));
+        applyCameraTransform(newZoom, newPanX, newPanY);
+      }
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (e.touches.length < 2) {
+        cameraPinchRef.current.active = false;
+        if (cameraZoomRef.current.zoom < 1.05) {
+          applyCameraTransform(1, 0, 0);
+        }
+      }
+    }
+
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
   }, []);
 
   // Pinch-to-zoom touch handler on the video container
@@ -268,6 +338,10 @@ export default function NinjaPage() {
     recorderRef.current = null;
     setRecordedBlob(null);
     setIsRecording(false);
+    if (cameraPreviewRef.current) {
+      cameraPreviewRef.current.style.transform = "";
+      cameraZoomRef.current = { zoom: 1, panX: 0, panY: 0 };
+    }
     setView("upload");
   }
 
@@ -463,7 +537,7 @@ export default function NinjaPage() {
 
       {/* ── Camera View ── */}
       <div style={{ display: view === "camera" ? "block" : "none", position: "fixed", inset: 0, background: "#000", zIndex: 50 }}>
-        <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: recordedBlob ? "none" : "block" }} />
+        <video ref={cameraPreviewRef} playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", display: recordedBlob ? "none" : "block", transformOrigin: "0 0" }} />
         <video ref={reviewVideoRef} playsInline controls style={{ width: "100%", height: "100%", objectFit: "contain", display: recordedBlob ? "block" : "none" }} />
 
         {/* Fixed header */}
