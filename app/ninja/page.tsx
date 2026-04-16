@@ -197,6 +197,8 @@ export default function NinjaPage() {
 
   // --- Camera ---
 
+  const [showPermissionHelp, setShowPermissionHelp] = useState(false);
+
   async function openCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -214,7 +216,8 @@ export default function NinjaPage() {
         }
       }, 50);
     } catch {
-      alert("Camera permission denied. Please allow camera access and try again.");
+      // Permission was denied or dismissed — show in-app instructions
+      setShowPermissionHelp(true);
     }
   }
 
@@ -416,12 +419,7 @@ export default function NinjaPage() {
         <button onClick={openCamera} style={{ ...uploadBtnStyle, background: "#2a6aff", marginTop: 16 }}>
           Record Video
         </button>
-        <p style={{ fontSize: 12, color: "#555", textAlign: "center", marginTop: 8, lineHeight: 1.5 }}>
-          To stop seeing the camera permission prompt: go to{" "}
-          <strong style={{ color: "#777" }}>Settings → Safari → Camera & Microphone</strong>{" "}
-          and set both to <strong style={{ color: "#777" }}>Allow</strong>.
-        </p>
-        <button onClick={() => fileInputRef.current?.click()} style={{ ...uploadBtnStyle, background: "#333", marginTop: 16 }}>
+        <button onClick={() => fileInputRef.current?.click()} style={{ ...uploadBtnStyle, background: "#333", marginTop: 10 }}>
           Upload from Library
         </button>
         <input ref={fileInputRef} type="file" accept="video/*" style={{ display: "none" }} onChange={handleFileChange} />
@@ -540,6 +538,34 @@ export default function NinjaPage() {
           Save Attempt
         </button>
       </div>
+      {/* Permission help popup */}
+      {showPermissionHelp && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24, zIndex: 100,
+        }}>
+          <div style={{ background: "#1a1a1a", borderRadius: 16, padding: 24, maxWidth: 340, width: "100%" }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Allow Camera Access</h2>
+            <p style={{ fontSize: 14, color: "#aaa", lineHeight: 1.6, marginBottom: 16 }}>
+              To record videos, allow camera and microphone access permanently so you never see this prompt again:
+            </p>
+            <ol style={{ fontSize: 14, color: "#aaa", lineHeight: 2, paddingLeft: 20, marginBottom: 20 }}>
+              <li>Open the iPhone <strong style={{ color: "#eee" }}>Settings</strong> app</li>
+              <li>Scroll down and tap <strong style={{ color: "#eee" }}>Safari</strong></li>
+              <li>Tap <strong style={{ color: "#eee" }}>Camera</strong> → select <strong style={{ color: "#eee" }}>Allow</strong></li>
+              <li>Tap <strong style={{ color: "#eee" }}>Microphone</strong> → select <strong style={{ color: "#eee" }}>Allow</strong></li>
+              <li>Return here and tap <strong style={{ color: "#eee" }}>Record Video</strong> again</li>
+            </ol>
+            <button
+              onClick={() => setShowPermissionHelp(false)}
+              style={{ display: "block", width: "100%", padding: 14, fontSize: 16, fontWeight: 600, background: "#2a6aff", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer" }}
+            >
+              Got It
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
