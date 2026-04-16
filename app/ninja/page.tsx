@@ -416,7 +416,12 @@ export default function NinjaPage() {
         <button onClick={openCamera} style={{ ...uploadBtnStyle, background: "#2a6aff", marginTop: 16 }}>
           Record Video
         </button>
-        <button onClick={() => fileInputRef.current?.click()} style={{ ...uploadBtnStyle, background: "#333", marginTop: 10 }}>
+        <p style={{ fontSize: 12, color: "#555", textAlign: "center", marginTop: 8, lineHeight: 1.5 }}>
+          To stop seeing the camera permission prompt: go to{" "}
+          <strong style={{ color: "#777" }}>Settings → Safari → Camera & Microphone</strong>{" "}
+          and set both to <strong style={{ color: "#777" }}>Allow</strong>.
+        </p>
+        <button onClick={() => fileInputRef.current?.click()} style={{ ...uploadBtnStyle, background: "#333", marginTop: 16 }}>
           Upload from Library
         </button>
         <input ref={fileInputRef} type="file" accept="video/*" style={{ display: "none" }} onChange={handleFileChange} />
