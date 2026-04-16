@@ -446,7 +446,20 @@ export default function NinjaPage() {
   function handleLoadedMetadata() {
     annotationRef.current?.resize();
     annotationRef.current?.enable();
-    setDuration(videoRef.current?.duration ?? 0);
+    const video = videoRef.current!;
+    if (isFinite(video.duration) && video.duration > 0) {
+      setDuration(video.duration);
+      return;
+    }
+    // MediaRecorder WebM files often report Infinity until a seek-to-end forces metadata to settle.
+    const restoreTime = video.currentTime;
+    const onSeek = () => {
+      video.removeEventListener("seeked", onSeek);
+      setDuration(isFinite(video.duration) ? video.duration : 0);
+      video.currentTime = restoreTime;
+    };
+    video.addEventListener("seeked", onSeek);
+    video.currentTime = 1e9;
   }
 
   function handleTimeUpdate() {
@@ -724,21 +737,33 @@ export default function NinjaPage() {
           onPointerMove={handleTimelineMove}
           onPointerUp={handleTimelineUp}
           onPointerCancel={handleTimelineUp}
-          style={{ position: "relative", height: 28, padding: "12px 12px", touchAction: "none", cursor: "pointer" }}
+          style={{ position: "relative", padding: "26px 12px 8px", touchAction: "none", cursor: "pointer" }}
         >
           <div style={{ position: "relative", width: "100%", height: 4, background: "#333", borderRadius: 2 }}>
-            <div style={{
-              position: "absolute", left: 0, top: 0, height: "100%",
-              width: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
-              background: "#fff", borderRadius: 2,
-            }} />
-            <div style={{
-              position: "absolute",
-              left: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
-              top: "50%", transform: "translate(-50%, -50%)",
-              width: 14, height: 14, background: "#fff", borderRadius: "50%",
-              boxShadow: "0 0 0 2px rgba(0,0,0,0.5)",
-            }} />
+            {(() => {
+              const pct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+              return (
+                <>
+                  <div style={{
+                    position: "absolute", left: 0, top: 0, height: "100%",
+                    width: `${pct}%`, background: "#fff", borderRadius: 2,
+                  }} />
+                  <div style={{
+                    position: "absolute", left: `${pct}%`, top: "50%",
+                    transform: "translate(-50%, -50%)",
+                    width: 14, height: 14, background: "#fff", borderRadius: "50%",
+                    boxShadow: "0 0 0 2px rgba(0,0,0,0.5)",
+                  }} />
+                  <div style={{
+                    position: "absolute", left: `${pct}%`, bottom: "calc(100% + 6px)",
+                    transform: "translateX(-50%)",
+                    background: "rgba(0,0,0,0.85)", color: "#fff",
+                    fontSize: 11, fontWeight: 700, padding: "2px 6px", borderRadius: 4,
+                    whiteSpace: "nowrap", pointerEvents: "none",
+                  }}>{formatTime(currentTime)}</div>
+                </>
+              );
+            })()}
           </div>
         </div>
 
