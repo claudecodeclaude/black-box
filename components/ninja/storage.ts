@@ -1,6 +1,7 @@
 const DB_NAME = "ninja-lab";
 const DB_VERSION = 1;
 const STORE_NAME = "attempts";
+const DRAFT_ID = -1; // special ID reserved for unsaved draft
 
 export interface Attempt {
   id: number;
@@ -75,4 +76,26 @@ export function deleteAttempt(id: number): Promise<void> {
       tx.onerror = (e) => reject((e.target as IDBRequest).error);
     });
   });
+}
+
+// Draft: a temporary slot for a video that hasn't been saved yet.
+// Survives page reloads caused by iOS Safari when accessing the camera.
+export function saveDraft(video: Blob): Promise<void> {
+  const draft: Attempt = {
+    id: DRAFT_ID,
+    video,
+    annotations: [],
+    annotationTime: 0,
+    notes: "",
+    createdAt: new Date().toISOString(),
+  };
+  return saveAttempt(draft);
+}
+
+export function getDraft(): Promise<Attempt | undefined> {
+  return getAttempt(DRAFT_ID);
+}
+
+export function clearDraft(): Promise<void> {
+  return deleteAttempt(DRAFT_ID);
 }

@@ -8,6 +8,9 @@ import {
   getAttempt,
   saveAttempt,
   deleteAttempt,
+  saveDraft,
+  getDraft,
+  clearDraft,
   type Attempt,
   type Shape,
 } from "@/components/ninja/storage";
@@ -48,6 +51,23 @@ export default function NinjaPage() {
     refreshAttempts();
   }, [refreshAttempts]);
 
+  // On mount: restore draft if iOS Safari reloaded the page mid-session
+  useEffect(() => {
+    if (sessionStorage.getItem("ninja-draft") === "true") {
+      getDraft().then((draft) => {
+        if (draft) {
+          currentBlobRef.current = draft.video;
+          currentIdRef.current = null;
+          setView("player");
+          setTimeout(() => loadVideoBlob(draft.video), 0);
+        } else {
+          sessionStorage.removeItem("ninja-draft");
+        }
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const onResize = () => annotationRef.current?.resize();
     window.addEventListener("resize", onResize);
@@ -67,10 +87,13 @@ export default function NinjaPage() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Save to IndexedDB immediately — survives iOS Safari page reload from camera
+    saveDraft(file).then(() => {
+      sessionStorage.setItem("ninja-draft", "true");
+    });
     currentBlobRef.current = file;
     currentIdRef.current = null;
     setView("player");
-    // Load after view switch so video element is visible
     setTimeout(() => loadVideoBlob(file), 0);
     e.target.value = "";
   }
@@ -83,6 +106,8 @@ export default function NinjaPage() {
     video.load();
     currentBlobRef.current = null;
     currentIdRef.current = null;
+    clearDraft();
+    sessionStorage.removeItem("ninja-draft");
     setView("upload");
     refreshAttempts();
   }
@@ -177,6 +202,8 @@ export default function NinjaPage() {
     }
 
     await saveAttempt(attempt);
+    clearDraft();
+    sessionStorage.removeItem("ninja-draft");
     currentIdRef.current = attempt.id;
     setSaveLabel("Saved!");
     setTimeout(() => setSaveLabel("Save Attempt"), 1500);
