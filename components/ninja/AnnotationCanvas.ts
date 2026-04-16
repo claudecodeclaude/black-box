@@ -12,6 +12,7 @@ export class AnnotationCanvas {
   currentX: number;
   currentY: number;
   enabled: boolean;
+  multiTouch: boolean;
   color: string;
   lineWidth: number;
 
@@ -27,6 +28,7 @@ export class AnnotationCanvas {
     this.currentX = 0;
     this.currentY = 0;
     this.enabled = false;
+    this.multiTouch = false;
     this.color = "#ff2222";
     this.lineWidth = 3;
 
@@ -45,7 +47,7 @@ export class AnnotationCanvas {
   }
 
   _onDown(e: PointerEvent) {
-    if (!this.enabled) return;
+    if (!this.enabled || this.multiTouch) return;
     e.preventDefault();
     this.drawing = true;
     const pos = this._getPos(e);
@@ -57,7 +59,7 @@ export class AnnotationCanvas {
   }
 
   _onMove(e: PointerEvent) {
-    if (!this.drawing) return;
+    if (!this.drawing || this.multiTouch) return;
     e.preventDefault();
     const pos = this._getPos(e);
     this.currentX = pos.x;
@@ -75,6 +77,7 @@ export class AnnotationCanvas {
   _onUp(e: PointerEvent) {
     if (!this.drawing) return;
     this.drawing = false;
+    if (this.multiTouch) { this.redraw(); return; }
     const pos = this._getPos(e);
     const dx = pos.x - this.startX;
     const dy = pos.y - this.startY;
@@ -128,15 +131,9 @@ export class AnnotationCanvas {
       const headLen = 14;
       ctx.beginPath();
       ctx.moveTo(x2, y2);
-      ctx.lineTo(
-        x2 - headLen * Math.cos(angle - Math.PI / 6),
-        y2 - headLen * Math.sin(angle - Math.PI / 6)
-      );
+      ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
       ctx.moveTo(x2, y2);
-      ctx.lineTo(
-        x2 - headLen * Math.cos(angle + Math.PI / 6),
-        y2 - headLen * Math.sin(angle + Math.PI / 6)
-      );
+      ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
       ctx.stroke();
     } else if (shape.type === "circle") {
       const rx = Math.abs(x2 - x1);
@@ -148,8 +145,15 @@ export class AnnotationCanvas {
     }
   }
 
-  setTool(tool: "line" | "arrow" | "circle") {
-    this.currentTool = tool;
+  setTool(tool: "line" | "arrow" | "circle") { this.currentTool = tool; }
+
+  // Called by the pinch handler to suppress drawing during zoom gestures
+  setMultiTouch(active: boolean) {
+    this.multiTouch = active;
+    if (active && this.drawing) {
+      this.drawing = false;
+      this.redraw();
+    }
   }
 
   enable() {
@@ -163,19 +167,9 @@ export class AnnotationCanvas {
     this.canvas.style.pointerEvents = "none";
   }
 
-  undo() {
-    this.shapes.pop();
-    this.redraw();
-  }
-
-  clear() {
-    this.shapes = [];
-    this.redraw();
-  }
-
-  getAnnotations(): Shape[] {
-    return this.shapes.slice();
-  }
+  undo() { this.shapes.pop(); this.redraw(); }
+  clear() { this.shapes = []; this.redraw(); }
+  getAnnotations(): Shape[] { return this.shapes.slice(); }
 
   setAnnotations(annotations: Shape[]) {
     this.shapes = annotations ? annotations.slice() : [];
@@ -183,8 +177,6 @@ export class AnnotationCanvas {
   }
 
   resize() {
-    // Use offsetWidth/Height (layout size) not getBoundingClientRect (visual size)
-    // so canvas pixel dimensions are correct regardless of CSS zoom transforms on parent
     const w = this.canvas.offsetWidth;
     const h = this.canvas.offsetHeight;
     const dpr = window.devicePixelRatio || 1;

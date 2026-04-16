@@ -112,6 +112,8 @@ export default function NinjaPage() {
     function onTouchStart(e: TouchEvent) {
       if (e.touches.length === 2) {
         e.preventDefault();
+        // Tell canvas to stop drawing — fingers are pinching, not drawing
+        annotationRef.current?.setMultiTouch(true);
         const rect = container!.getBoundingClientRect();
         const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
         const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
@@ -172,7 +174,11 @@ export default function NinjaPage() {
     }
 
     function onTouchEnd(e: TouchEvent) {
-      if (e.touches.length < 2) pinchStateRef.current.active = false;
+      if (e.touches.length < 2) {
+        pinchStateRef.current.active = false;
+        // Re-enable drawing once pinch is released
+        annotationRef.current?.setMultiTouch(false);
+      }
       if (e.touches.length === 0) {
         singleTouchRef.current.active = false;
         if (zoomRef.current < 1.05) resetZoom();
