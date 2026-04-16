@@ -42,7 +42,7 @@ export default function NinjaPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const notesRef = useRef<HTMLTextAreaElement>(null);
+  const notesRef = useRef<HTMLInputElement>(null);
   const annotationRef = useRef<AnnotationCanvas | null>(null);
   const currentBlobRef = useRef<Blob | null>(null);
   const currentIdRef = useRef<number | null>(null);
@@ -339,7 +339,10 @@ export default function NinjaPage() {
     annotationRef.current?.resize();
   }
 
-  function handleLoadedMetadata() { annotationRef.current?.resize(); }
+  function handleLoadedMetadata() {
+    annotationRef.current?.resize();
+    annotationRef.current?.enable();
+  }
 
   function handleFrameBack() {
     const video = videoRef.current!;
@@ -487,52 +490,46 @@ export default function NinjaPage() {
       </div>
 
       {/* ── Player View ── */}
-      <div style={{ display: view === "player" ? "block" : "none", paddingBottom: 32 }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "10px 16px", gap: 12 }}>
-          <button onClick={goToUpload} style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 16, fontWeight: 600, padding: "8px 0", cursor: "pointer" }}>← Back</button>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>Ninja Lab</span>
+      <div style={{ display: view === "player" ? "flex" : "none", flexDirection: "column", height: "100dvh", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "6px 12px", gap: 8 }}>
+          <button onClick={goToUpload} style={{ background: "none", border: "none", color: "#2a6aff", fontSize: 15, fontWeight: 600, padding: "6px 0", cursor: "pointer" }}>← Back</button>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>Ninja Lab</span>
         </div>
 
         {/* Pinch-zoomable video container */}
         <div
           ref={containerRef}
-          style={{ position: "relative", width: "100%", background: "#000", lineHeight: 0, overflow: "hidden" }}
+          style={{ position: "relative", flex: 1, minHeight: 0, width: "100%", background: "#000", lineHeight: 0, overflow: "hidden" }}
         >
-          <div ref={zoomLayerRef} style={{ transformOrigin: "0 0", willChange: "transform" }}>
+          <div ref={zoomLayerRef} style={{ transformOrigin: "0 0", willChange: "transform", height: "100%" }}>
             <video
               ref={videoRef}
               playsInline
-              style={{ width: "100%", display: "block" }}
+              style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
               onLoadedMetadata={handleLoadedMetadata}
             />
             <canvas
               ref={canvasRef}
-              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", touchAction: "none" }}
+              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", touchAction: "none" }}
             />
           </div>
         </div>
 
-        {/* Playback controls */}
-        <div style={{ display: "flex", gap: 8, padding: "12px 16px 8px" }}>
-          {[{ label: playing ? "Pause" : "Play", fn: handlePlay }, { label: "← Frame", fn: handleFrameBack }, { label: "Frame →", fn: handleFrameForward }].map((b) => (
-            <button key={b.label} onClick={b.fn} style={controlBtnStyle}>{b.label}</button>
+        {/* Playback + speed controls */}
+        <div style={{ display: "flex", gap: 4, padding: "6px 8px 4px" }}>
+          {[{ label: playing ? "⏸" : "▶", fn: handlePlay }, { label: "◀", fn: handleFrameBack }, { label: "▶", fn: handleFrameForward }].map((b, i) => (
+            <button key={i} onClick={b.fn} style={controlBtnStyle}>{b.label}</button>
           ))}
-        </div>
-
-        {/* Speed controls */}
-        <div style={{ display: "flex", gap: 8, padding: "0 16px 8px" }}>
+          <div style={{ width: 1, background: "#333", margin: "4px 2px" }} />
           {([0.25, 0.5, 1] as const).map((rate) => (
             <button key={rate} onClick={() => handleSpeed(rate)} style={controlBtnStyle}>{rate}x</button>
           ))}
         </div>
 
         {/* Annotation tools */}
-        <div style={{ fontSize: 12, color: "#555", textTransform: "uppercase", letterSpacing: 1, padding: "4px 16px 6px" }}>
-          Draw on paused frame · Pinch to zoom
-        </div>
-        <div style={{ display: "flex", gap: 8, padding: "0 16px 12px", opacity: toolsDisabled ? 0.25 : 1, pointerEvents: toolsDisabled ? "none" : "auto" }}>
+        <div style={{ display: "flex", gap: 4, padding: "0 8px 4px", opacity: toolsDisabled ? 0.25 : 1, pointerEvents: toolsDisabled ? "none" : "auto" }}>
           {(["line", "arrow", "circle"] as Tool[]).map((tool) => (
             <button key={tool} onClick={() => handleToolSelect(tool)} style={{ ...toolBtnStyle, borderColor: activeTool === tool ? "#ff3333" : "#333", background: activeTool === tool ? "#301515" : "#222" }}>
               {tool.charAt(0).toUpperCase() + tool.slice(1)}
@@ -542,15 +539,17 @@ export default function NinjaPage() {
           <button onClick={() => annotationRef.current?.clear()} style={toolBtnStyle}>Clear</button>
         </div>
 
-        <textarea
-          ref={notesRef}
-          placeholder="Coach notes..."
-          style={{ display: "block", width: "calc(100% - 32px)", margin: "0 16px 12px", padding: 12, fontSize: 16, fontFamily: "inherit", background: "#1a1a1a", color: "#eee", border: "2px solid #333", borderRadius: 10, resize: "vertical", minHeight: 56 }}
-        />
-
-        <button onClick={handleSave} style={{ display: "block", width: "calc(100% - 32px)", margin: "0 16px", padding: 16, fontSize: 17, fontWeight: 700, background: "#1a9a3a", color: "#fff", border: "none", borderRadius: 12, cursor: "pointer" }}>
-          Save Attempt
-        </button>
+        {/* Notes + Save */}
+        <div style={{ display: "flex", gap: 6, padding: "0 8px 8px" }}>
+          <input
+            ref={notesRef}
+            placeholder="Coach notes..."
+            style={{ flex: 1, padding: "10px 12px", fontSize: 15, fontFamily: "inherit", background: "#1a1a1a", color: "#eee", border: "2px solid #333", borderRadius: 10, minWidth: 0 }}
+          />
+          <button onClick={handleSave} style={{ padding: "10px 16px", fontSize: 15, fontWeight: 700, background: "#1a9a3a", color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Save
+          </button>
+        </div>
       </div>
       {/* Permission help popup */}
       {showPermissionHelp && (
@@ -598,11 +597,11 @@ const uploadBtnStyle: React.CSSProperties = {
 };
 
 const controlBtnStyle: React.CSSProperties = {
-  flex: 1, padding: "14px 4px", fontSize: 15, fontWeight: 600,
-  background: "#222", color: "#eee", border: "2px solid #333", borderRadius: 10, cursor: "pointer",
+  flex: 1, padding: "10px 2px", fontSize: 14, fontWeight: 600,
+  background: "#222", color: "#eee", border: "2px solid #333", borderRadius: 8, cursor: "pointer", minWidth: 0,
 };
 
 const toolBtnStyle: React.CSSProperties = {
-  flex: 1, padding: "12px 4px", fontSize: 13, fontWeight: 600,
-  background: "#222", color: "#eee", border: "2px solid #333", borderRadius: 10, cursor: "pointer", minWidth: 0,
+  flex: 1, padding: "10px 2px", fontSize: 13, fontWeight: 600,
+  background: "#222", color: "#eee", border: "2px solid #333", borderRadius: 8, cursor: "pointer", minWidth: 0,
 };

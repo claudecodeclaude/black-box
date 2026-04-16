@@ -36,6 +36,9 @@ export class AnnotationCanvas {
     canvas.addEventListener("pointermove", (e) => this._onMove(e));
     canvas.addEventListener("pointerup", (e) => this._onUp(e));
     canvas.addEventListener("pointercancel", (e) => this._onUp(e));
+    // Prevent touch scrolling when the canvas is enabled
+    canvas.addEventListener("touchstart", (e) => { if (this.enabled) e.preventDefault(); }, { passive: false });
+    canvas.addEventListener("touchmove", (e) => { if (this.enabled) e.preventDefault(); }, { passive: false });
   }
 
   _getPos(e: PointerEvent) {
@@ -158,13 +161,11 @@ export class AnnotationCanvas {
 
   enable() {
     this.enabled = true;
-    this.canvas.style.pointerEvents = "auto";
   }
 
   disable() {
     this.enabled = false;
     this.drawing = false;
-    this.canvas.style.pointerEvents = "none";
   }
 
   undo() { this.shapes.pop(); this.redraw(); }
