@@ -32,6 +32,8 @@ export default function NinjaPage() {
   const [frames, setFrames] = useState<FrameSnapshot[]>([]);
   const [currentFrameIdx, setCurrentFrameIdx] = useState<number | null>(null);
   const [showFrameGrid, setShowFrameGrid] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
   const framesRef = useRef<FrameSnapshot[]>([]);
   const currentFrameIdxRef = useRef<number | null>(null);
   useEffect(() => { framesRef.current = frames; }, [frames]);
@@ -425,6 +427,37 @@ export default function NinjaPage() {
   function handleLoadedMetadata() {
     annotationRef.current?.resize();
     annotationRef.current?.enable();
+    setDuration(videoRef.current?.duration ?? 0);
+  }
+
+  function handleTimeUpdate() {
+    setCurrentTime(videoRef.current?.currentTime ?? 0);
+  }
+
+  function seekTimelineToEvent(e: React.PointerEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const target = pct * (videoRef.current?.duration ?? 0);
+    videoRef.current!.currentTime = target;
+  }
+
+  function handleTimelineDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    videoRef.current!.pause();
+    captureAndClear();
+    seekTimelineToEvent(e);
+  }
+
+  function handleTimelineMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      seekTimelineToEvent(e);
+    }
+  }
+
+  function handleTimelineUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
   }
 
   function handleFrameBack() {
@@ -621,6 +654,7 @@ export default function NinjaPage() {
               onPause={handleVideoPause}
               onSeeked={handleVideoSeeked}
               onLoadedMetadata={handleLoadedMetadata}
+              onTimeUpdate={handleTimeUpdate}
             />
             <canvas
               ref={canvasRef}
@@ -661,6 +695,30 @@ export default function NinjaPage() {
               </div>
             </button>
           )}
+        </div>
+
+        {/* Timeline scrubber */}
+        <div
+          onPointerDown={handleTimelineDown}
+          onPointerMove={handleTimelineMove}
+          onPointerUp={handleTimelineUp}
+          onPointerCancel={handleTimelineUp}
+          style={{ position: "relative", height: 28, padding: "12px 12px", touchAction: "none", cursor: "pointer" }}
+        >
+          <div style={{ position: "relative", width: "100%", height: 4, background: "#333", borderRadius: 2 }}>
+            <div style={{
+              position: "absolute", left: 0, top: 0, height: "100%",
+              width: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
+              background: "#fff", borderRadius: 2,
+            }} />
+            <div style={{
+              position: "absolute",
+              left: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
+              top: "50%", transform: "translate(-50%, -50%)",
+              width: 14, height: 14, background: "#fff", borderRadius: "50%",
+              boxShadow: "0 0 0 2px rgba(0,0,0,0.5)",
+            }} />
+          </div>
         </div>
 
         {/* Playback + speed controls */}
@@ -722,13 +780,17 @@ export default function NinjaPage() {
               <div key={i} style={{ position: "relative", background: "#1a1a1a", borderRadius: 8, overflow: "hidden" }}>
                 <button
                   onClick={() => handleFrameThumbClick(i)}
-                  style={{ display: "block", width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer" }}
-                  aria-label={`Go to frame at ${f.time.toFixed(2)}s`}
+                  style={{ display: "block", width: "100%", padding: 0, background: "none", border: "none", cursor: "pointer", position: "relative" }}
+                  aria-label={`Go to frame at ${formatTime(f.time)}`}
                 >
                   {f.thumbnail
                     ? <img src={f.thumbnail} alt="" style={{ display: "block", width: "100%", aspectRatio: "16 / 9", objectFit: "cover", background: "#000" }} />
                     : <div style={{ width: "100%", aspectRatio: "16 / 9", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", fontSize: 12 }}>no preview</div>}
-                  <div style={{ padding: "6px 8px", fontSize: 12, color: "#aaa", textAlign: "left" }}>{f.time.toFixed(2)}s</div>
+                  <span style={{
+                    position: "absolute", bottom: 6, left: 6,
+                    background: "rgba(0,0,0,0.75)", color: "#fff",
+                    fontSize: 12, fontWeight: 700, padding: "2px 6px", borderRadius: 4,
+                  }}>{formatTime(f.time)}</span>
                 </button>
                 <button
                   onClick={() => handleFrameDelete(i)}
@@ -867,6 +929,20 @@ const toolBtnStyle: React.CSSProperties = {
   flex: 1, padding: "10px 2px", fontSize: 13, fontWeight: 600,
   background: "#222", color: "#eee", border: "2px solid #333", borderRadius: 8, cursor: "pointer", minWidth: 0,
 };
+
+function formatTime(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) seconds = 0;
+  const totalCs = Math.floor(seconds * 100);
+  const cs = totalCs % 100;
+  const totalS = Math.floor(totalCs / 100);
+  const s = totalS % 60;
+  const totalM = Math.floor(totalS / 60);
+  const m = totalM % 60;
+  const h = Math.floor(totalM / 60);
+  const pad = (n: number, w: number) => n.toString().padStart(w, "0");
+  if (h > 0) return `${h}:${pad(m, 2)}:${pad(s, 2)}`;
+  return `${m}:${pad(s, 2)}.${pad(cs, 2)}`;
+}
 
 function ShapeIcon({ type }: { type: Shape["type"] }) {
   const common = { width: 18, height: 18, viewBox: "0 0 20 20", stroke: "#eee", strokeWidth: 2, fill: "none", strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
