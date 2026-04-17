@@ -11,6 +11,12 @@ const apps = [
     name: "Ninja Lab",
     description: "Upload ninja run videos, annotate frames, and save attempts for review.",
   },
+  {
+    href: "http://100.74.13.60:7681/",
+    name: "Claude Code",
+    description: "Open a terminal into the Mac Mini's Claude Code session over Tailscale.",
+    external: true,
+  },
 ];
 
 export default function Home() {
@@ -33,28 +39,36 @@ export default function Home() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {apps.map((app) => (
-          <Link
-            key={app.href}
-            href={app.href}
-            style={{
-              display: "block",
-              padding: "20px 18px",
-              background: "var(--surface)",
-              borderRadius: 12,
-              border: "1px solid var(--border)",
-              textDecoration: "none",
-              color: "inherit",
-            }}
-          >
-            <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>
-              {app.name}
-            </div>
-            <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.4 }}>
-              {app.description}
-            </div>
-          </Link>
-        ))}
+        {apps.map((app) => {
+          const tileStyle = {
+            display: "block",
+            padding: "20px 18px",
+            background: "var(--surface)",
+            borderRadius: 12,
+            border: "1px solid var(--border)",
+            textDecoration: "none",
+            color: "inherit",
+          } as const;
+          const inner = (
+            <>
+              <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>
+                {app.name}
+              </div>
+              <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.4 }}>
+                {app.description}
+              </div>
+            </>
+          );
+          return app.external ? (
+            <a key={app.href} href={app.href} style={tileStyle}>
+              {inner}
+            </a>
+          ) : (
+            <Link key={app.href} href={app.href} style={tileStyle}>
+              {inner}
+            </Link>
+          );
+        })}
       </div>
     </main>
   );
