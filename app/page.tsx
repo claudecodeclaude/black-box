@@ -41,7 +41,7 @@ const home: HomeItem[] = [
   },
   {
     kind: "tile",
-    href: "http://100.74.13.60:7681/",
+    href: "https://jasons-mac-mini-1.taile58089.ts.net:7681/",
     name: "Claude Code",
     description: "Open a terminal into the Mac Mini's Claude Code session over Tailscale.",
     external: true,

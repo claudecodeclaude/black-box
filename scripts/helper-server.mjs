@@ -15,6 +15,7 @@
 // this to HTTPS. See CLAUDE.md.
 
 import http from "node:http";
+import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -28,6 +29,9 @@ const REPO_DIR = process.env.HELPER_REPO || "/Users/jasonslagel/projects/black-b
 const TMUX_SESSION = process.env.HELPER_TMUX_SESSION || "claude";
 const TMUX_BIN = "/opt/homebrew/bin/tmux";
 const UPDATE_COMMAND = "update reddit ads";
+
+const CERT_PATH = process.env.HELPER_CERT;
+const KEY_PATH = process.env.HELPER_KEY;
 
 // ---------- helpers ----------------------------------------------------------
 
@@ -146,7 +150,7 @@ function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
-const server = http.createServer(async (req, res) => {
+const handler = async (req, res) => {
   cors(res);
 
   if (req.method === "OPTIONS") {
@@ -170,8 +174,23 @@ const server = http.createServer(async (req, res) => {
     log(`error: ${e}`);
     send(res, 500, { error: String(e) });
   }
-});
+};
+
+const useHttps =
+  CERT_PATH && KEY_PATH && fs.existsSync(CERT_PATH) && fs.existsSync(KEY_PATH);
+
+const server = useHttps
+  ? https.createServer(
+      {
+        cert: fs.readFileSync(CERT_PATH),
+        key: fs.readFileSync(KEY_PATH),
+      },
+      handler
+    )
+  : http.createServer(handler);
 
 server.listen(PORT, HOST, () => {
-  log(`Black Box helper listening on http://${HOST}:${PORT}`);
+  log(
+    `Black Box helper listening on ${useHttps ? "https" : "http"}://${HOST}:${PORT}`
+  );
 });

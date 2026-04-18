@@ -13,7 +13,7 @@ import {
 
 const LS_APPROVED = "reddit-ads/approved-candidates";
 const LS_REJECTED = "reddit-ads/rejected-candidates";
-const HELPER_URL = "http://100.74.13.60:7682";
+const HELPER_URL = "https://jasons-mac-mini-1.taile58089.ts.net:7682";
 
 type LocalApproval = { term: string; category: CategoryName };
 

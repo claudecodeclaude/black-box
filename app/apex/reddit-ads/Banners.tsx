@@ -6,8 +6,8 @@ import { candidates } from "./keywords";
 
 const LS_APPROVED = "reddit-ads/approved-candidates";
 const LS_REJECTED = "reddit-ads/rejected-candidates";
-const CLAUDE_CODE_URL = "http://100.74.13.60:7681/";
-const HELPER_URL = "http://100.74.13.60:7682";
+const CLAUDE_CODE_URL = "https://jasons-mac-mini-1.taile58089.ts.net:7681/";
+const HELPER_URL = "https://jasons-mac-mini-1.taile58089.ts.net:7682";
 const STALE_DAYS = 14;
 
 function pingHelperRunUpdate() {
