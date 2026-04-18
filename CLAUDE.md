@@ -47,7 +47,7 @@ Before extraction, read `data/keywords-overlay.json` if present (written by the 
 ```
 
 For each approved term: move from `candidates` into `baseKeywords[category]` in `app/apex/reddit-ads/keywords.ts`.
-For each rejected term: add to `rejected`, remove from `candidates`.
+For each rejected term: add to `rejected`, AND remove it from wherever it currently lives — `candidates`, `baseKeywords` (any category), or `misspellings`. Jason can reject a previously-approved base keyword via the popup menu, so handle all three sources.
 
 Then delete `data/keywords-overlay.json`.
 
@@ -89,6 +89,10 @@ In `app/apex/reddit-ads/data.ts`, merge new counts into existing `topics`:
   - `quotes` (10): verbatim top quotes across the corpus for that topic — preserve exact wording, typos and all
 
 Finally set `generatedAt` to now (ISO), update `keywordSet` if the active keyword list meaningfully changed.
+
+### 6b. Refresh hitCounts
+
+Update `hitCounts` in `app/apex/reddit-ads/keywords.ts` — for every active term (base + misspellings), count exact-surface-form occurrences in the corpus (case-insensitive for English, case-sensitive for things like "DDD" or "L4-L5"). This is what the keyword popup's "Direct Hits" line displays.
 
 ### 7. Record extraction state
 

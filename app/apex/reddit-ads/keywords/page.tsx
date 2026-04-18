@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   baseKeywords,
   candidates,
+  hitCounts,
   misspellings,
   rejected as rejectedBase,
   type CategoryName,
@@ -47,6 +48,7 @@ export default function KeywordsPage() {
   const [hydrated, setHydrated] = useState(false);
   const [localApproved, setLocalApproved] = useState<LocalApproval[]>([]);
   const [localRejected, setLocalRejected] = useState<string[]>([]);
+  const [selectedKeyword, setSelectedKeyword] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalApproved(readList<LocalApproval>(LS_APPROVED));
@@ -81,13 +83,31 @@ export default function KeywordsPage() {
     syncToHelper(a, r);
   }
 
+  function rejectTerm(term: string) {
+    const next = [...new Set([...localRejected, term])];
+    setLocalRejected(next);
+    writeList(LS_REJECTED, next);
+    syncToHelper(localApproved, next);
+    setSelectedKeyword(null);
+  }
+
   const approvedSet = new Set(localApproved.map((a) => a.term));
-  const rejectedSet = new Set(localRejected);
-  const actedSet = new Set([...approvedSet, ...rejectedSet]);
+  const rejectedAllSet = new Set([...rejectedBase, ...localRejected]);
+  const actedSet = new Set([...approvedSet, ...rejectedAllSet]);
   const pending = candidates.filter((c) => !actedSet.has(c.term));
 
-  const totalBase = Object.values(baseKeywords).flat().length;
-  const totalMisspellings = misspellings.length;
+  // Filter out rejected terms from the displayed lists.
+  const activeBase: Record<CategoryName, string[]> = Object.fromEntries(
+    (Object.entries(baseKeywords) as [CategoryName, string[]][]).map(
+      ([cat, terms]) => [cat, terms.filter((t) => !rejectedAllSet.has(t))]
+    )
+  ) as Record<CategoryName, string[]>;
+  const activeMisspellings = misspellings.filter(
+    (m) => !rejectedAllSet.has(m)
+  );
+
+  const totalBase = Object.values(activeBase).flat().length;
+  const totalMisspellings = activeMisspellings.length;
   const rejectedAll = [...new Set([...rejectedBase, ...localRejected])];
 
   return (
@@ -175,7 +195,7 @@ export default function KeywordsPage() {
       <section style={{ marginBottom: 32 }}>
         <SectionHeader title="Base keywords" badge={`${totalBase}`} />
         <div style={{ display: "flex", flexDirection: "column", gap: 20, marginTop: 14 }}>
-          {(Object.entries(baseKeywords) as [CategoryName, string[]][]).map(
+          {(Object.entries(activeBase) as [CategoryName, string[]][]).map(
             ([cat, terms]) => (
               <div key={cat}>
                 <div
@@ -189,7 +209,7 @@ export default function KeywordsPage() {
                 >
                   {cat} · {terms.length}
                 </div>
-                <KeywordChips terms={terms} />
+                <KeywordChips terms={terms} onSelect={setSelectedKeyword} />
               </div>
             )
           )}
@@ -204,12 +224,22 @@ export default function KeywordsPage() {
           badge={`${totalMisspellings}`}
         />
         <div style={{ marginTop: 12 }}>
-          <KeywordChips terms={misspellings} muted />
+          <KeywordChips terms={activeMisspellings} muted onSelect={setSelectedKeyword} />
         </div>
       </section>
 
       {/* Rejected */}
       <RejectedSection terms={rejectedAll} />
+
+      {/* Keyword detail popup */}
+      {selectedKeyword && (
+        <KeywordPopup
+          term={selectedKeyword}
+          hits={hitCounts[selectedKeyword]}
+          onReject={() => rejectTerm(selectedKeyword)}
+          onClose={() => setSelectedKeyword(null)}
+        />
+      )}
     </main>
   );
 }
@@ -408,27 +438,174 @@ function ActionRow({
 function KeywordChips({
   terms,
   muted = false,
+  onSelect,
 }: {
   terms: string[];
   muted?: boolean;
+  onSelect?: (t: string) => void;
 }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {terms.map((t) => (
-        <span
-          key={t}
+      {terms.map((t) =>
+        onSelect ? (
+          <button
+            key={t}
+            type="button"
+            onClick={() => onSelect(t)}
+            style={{
+              padding: "5px 10px",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              fontSize: 13,
+              color: muted ? "var(--muted)" : "var(--text)",
+              cursor: "pointer",
+              font: "inherit",
+            }}
+          >
+            {t}
+          </button>
+        ) : (
+          <span
+            key={t}
+            style={{
+              padding: "5px 10px",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              fontSize: 13,
+              color: muted ? "var(--muted)" : "var(--text)",
+            }}
+          >
+            {t}
+          </span>
+        )
+      )}
+    </div>
+  );
+}
+
+function KeywordPopup({
+  term,
+  hits,
+  onReject,
+  onClose,
+}: {
+  term: string;
+  hits: number | undefined;
+  onReject: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.7)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        zIndex: 100,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 14,
+          padding: "22px 20px 14px",
+          width: "100%",
+          maxWidth: 360,
+        }}
+      >
+        <div
           style={{
-            padding: "5px 10px",
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 999,
-            fontSize: 13,
-            color: muted ? "var(--muted)" : "var(--text)",
+            fontSize: 11,
+            color: "var(--muted)",
+            letterSpacing: 2,
+            textTransform: "uppercase",
           }}
         >
-          {t}
-        </span>
-      ))}
+          Keyword
+        </div>
+        <div
+          style={{
+            fontSize: 20,
+            fontWeight: 700,
+            marginTop: 4,
+            marginBottom: 16,
+            wordBreak: "break-word",
+          }}
+        >
+          {term}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 14px",
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            marginBottom: 12,
+          }}
+        >
+          <span style={{ fontSize: 14 }}>Direct Hits</span>
+          <span
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              fontVariantNumeric: "tabular-nums",
+              color: hits == null ? "var(--muted)" : "var(--text)",
+            }}
+          >
+            {hits != null ? hits.toLocaleString() : "—"}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={onReject}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "12px 14px",
+            background: "#3a1a1a",
+            border: "1px solid #6f2f2f",
+            color: "#f0cfcf",
+            borderRadius: 10,
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: "pointer",
+            marginBottom: 8,
+          }}
+        >
+          Reject
+        </button>
+
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "10px 14px",
+            background: "transparent",
+            border: "1px solid var(--border)",
+            color: "var(--muted)",
+            borderRadius: 10,
+            fontSize: 14,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

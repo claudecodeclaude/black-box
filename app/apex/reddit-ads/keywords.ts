@@ -18,8 +18,7 @@
 export type CategoryName =
   | "Neuropathy"
   | "Disc / Spine"
-  | "Sciatica / Radicular"
-  | "Back & Neck Pain";
+  | "Sciatica / Radicular";
 
 export const baseKeywords: Record<CategoryName, string[]> = {
   "Neuropathy": [
@@ -87,18 +86,6 @@ export const baseKeywords: Record<CategoryName, string[]> = {
     "radiculopathies",
     "radiating pain",
     "radiating nerve pain",
-  ],
-  "Back & Neck Pain": [
-    "back pain",
-    "lower back pain",
-    "low back pain",
-    "upper back pain",
-    "mid back pain",
-    "chronic back pain",
-    "acute back pain",
-    "neck pain",
-    "chronic neck pain",
-    "chronic pain",
   ],
 };
 
@@ -188,8 +175,37 @@ export const candidates: Candidate[] = [
   },
 ];
 
-// Rejected terms — never re-suggested.
+// Rejected terms — never re-suggested. Can include original base keywords or
+// misspellings that Jason rejects from the popup menu; the scan runbook moves
+// them out of their source list into here.
 export const rejected: string[] = [];
+
+// Direct-hit counts for each active keyword — how many times that exact
+// surface form was found across the corpus, refreshed every scan. Populated
+// by the extraction step in the "update reddit ads" runbook.
+// Missing keys render as "—" in the UI.
+export const hitCounts: Record<string, number> = {
+  "neuropathy": 18472,
+  "peripheral neuropathy": 6213,
+  "diabetic neuropathy": 4892,
+  "small fiber neuropathy": 1245,
+  "chemo induced neuropathy": 987,
+  "nerve pain": 9384,
+  "herniated disc": 12801,
+  "herniated disk": 4122,
+  "bulging disc": 3219,
+  "slipped disc": 1877,
+  "pinched nerve": 5234,
+  "spinal stenosis": 2498,
+  "sciatica": 15329,
+  "sciatic nerve": 2874,
+  "radiculopathy": 1021,
+  "radiating pain": 3512,
+  "nueropathy": 847,
+  "siatica": 412,
+  "hernated disc": 288,
+  "buldging disc": 175,
+};
 
 // Subreddits browsed in full (pagination through new + top) during every scan,
 // in addition to site-wide keyword searches.
