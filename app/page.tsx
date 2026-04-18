@@ -43,7 +43,7 @@ const home: HomeItem[] = [
         kind: "tile",
         href: "/apex/reddit-ads",
         name: "Reddit Ads",
-        description: "Weekly Reddit topic scan for neuropathy + disc issues, with video hooks and ad ideas per topic.",
+        description: "Monthly Reddit topic scan for neuropathy, sciatica, and disc/back pain — with video hooks and ad ideas per topic.",
       },
       {
         kind: "tile",

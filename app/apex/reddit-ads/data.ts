@@ -1,3 +1,28 @@
+// Reddit Ads — design constraints (honored by the future scan pipeline)
+// - Runs MONTHLY (not weekly)
+// - Keeps the top 50 topics by mention frequency (not 75)
+// - Brand names and generic names are tracked SEPARATELY (e.g., Gabapentin and
+//   Neurontin are different topics). Reason: ads should use whichever word
+//   people are actually using in comments, so we need the raw split.
+
+export const searchKeywords = [
+  "neuropathy",
+  "peripheral neuropathy",
+  "disc",
+  "disk", // common misspelling
+  "herniated disc",
+  "herniated disk",
+  "bulging disc",
+  "bulging disk",
+  "back pain",
+  "neck pain",
+  "sciatica",
+  "radiculopathy",
+  "radiating pain",
+];
+
+export const MAX_TOPICS = 50;
+
 export type Topic = {
   slug: string;
   name: string;
@@ -17,13 +42,14 @@ export type Report = {
 
 export const report: Report = {
   generatedAt: "2026-04-14T00:00:00Z",
-  keywordSet: "neuropathy + disc issues",
+  keywordSet: "neuropathy, sciatica, disc/disk, back & neck pain",
   topics: [
     {
       slug: "gabapentin",
       name: "Gabapentin",
       count: 847,
       subreddits: ["r/ChronicPain", "r/neuropathy", "r/backpain"],
+      // Note: tracked separately from Neurontin — see the Neurontin entry below.
       authenticHooks: [
         "If gabapentin isn't working for you either, you're not imagining it.",
         "I took gabapentin for 3 years and all it did was make me forget things.",
@@ -71,6 +97,29 @@ export const report: Report = {
         "gabapentin withdrawal is real and nobody warned me",
         "I tapered off gabapentin over 6 months",
         "honestly gabapentin did nothing for my neuropathy",
+      ],
+    },
+    {
+      slug: "neurontin",
+      name: "Neurontin",
+      count: 312,
+      subreddits: ["r/ChronicPain", "r/neuropathy"],
+      // Brand name for gabapentin. Tracked separately so ads can mirror
+      // whichever word a given community actually uses.
+      authenticHooks: [
+        "My doctor called it Neurontin. It didn't help either.",
+        "Neurontin, gabapentin — same pill, same useless result.",
+        "If Neurontin knocked you out cold, you're not the only one.",
+      ],
+      fbHooks: [
+        "If Neurontin isn't working, here's what doctors don't say.",
+      ],
+      videoIdeas: [
+        "Why your doctor calls it Neurontin and the pharmacy calls it gabapentin",
+      ],
+      quotes: [
+        "neurontin made me feel like a ghost",
+        "I was on neurontin for years before I realized it wasn't helping",
       ],
     },
     {
