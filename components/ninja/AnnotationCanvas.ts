@@ -27,6 +27,8 @@ export class AnnotationCanvas {
   private _didMove: boolean;
   private _longPressTimer: ReturnType<typeof setTimeout> | null;
   private _dragging: { index: number; lastX: number; lastY: number } | null;
+  private _selectedIndex: number | null;
+  private _handleDrag: { index: number; handleId: string } | null;
 
   constructor(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
     this.canvas = canvas;
@@ -50,6 +52,8 @@ export class AnnotationCanvas {
     this._didMove = false;
     this._longPressTimer = null;
     this._dragging = null;
+    this._selectedIndex = null;
+    this._handleDrag = null;
 
     canvas.addEventListener("pointerdown", (e) => this._onDown(e));
     canvas.addEventListener("pointermove", (e) => this._onMove(e));
@@ -75,6 +79,7 @@ export class AnnotationCanvas {
       this.multiTouch = true;
       if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
       if (this._dragging) { this._dragging = null; this.redraw(); }
+      if (this._handleDrag) { this._handleDrag = null; this.redraw(); }
       if (this.drawing) { this.drawing = false; this._strokePoints = []; this.redraw(); }
       const rect = this.canvas.getBoundingClientRect();
       const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
@@ -169,14 +174,27 @@ export class AnnotationCanvas {
     if (!this.enabled || this.multiTouch) return;
     e.preventDefault();
     const pos = this._getPos(e);
+
+    // If a shape is selected and the touch lands on one of its handles, start
+    // a handle drag immediately — takes priority over everything else.
+    if (this._selectedIndex != null) {
+      const handleId = this._hitTestHandle(pos, this._selectedIndex);
+      if (handleId) {
+        this._handleDrag = { index: this._selectedIndex, handleId };
+        this.canvas.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+
     this._tapStart = { x: pos.x, y: pos.y, time: Date.now(), screenX: e.clientX, screenY: e.clientY };
     this._didMove = false;
     this._strokePoints = [pos];
     this.canvas.setPointerCapture(e.pointerId);
 
-    // If pointer landed on a shape, start a long-press timer to enter drag mode
+    // Long-press to move the whole shape, but ONLY on the already-selected
+    // shape. Prevents accidental drags of shapes the user didn't mean to grab.
     const hitIdx = this._hitTest(pos);
-    if (hitIdx >= 0) {
+    if (hitIdx >= 0 && hitIdx === this._selectedIndex) {
       this._longPressTimer = setTimeout(() => {
         this._longPressTimer = null;
         this.drawing = false;
@@ -189,6 +207,16 @@ export class AnnotationCanvas {
   }
 
   _onMove(e: PointerEvent) {
+    // Handle drag takes priority over everything else.
+    if (this._handleDrag) {
+      if (this.multiTouch) return;
+      e.preventDefault();
+      const pos = this._getPos(e);
+      this._applyHandleDrag(this._handleDrag.index, this._handleDrag.handleId, pos);
+      this.redraw();
+      return;
+    }
+
     if (!this._tapStart || this.multiTouch) return;
     e.preventDefault();
     const pos = this._getPos(e);
@@ -213,6 +241,10 @@ export class AnnotationCanvas {
       this._didMove = true;
       this.drawing = true;
       if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
+      // Starting a new stroke deselects any current selection.
+      if (this._selectedIndex !== null) {
+        this._selectedIndex = null;
+      }
     }
 
     if (this.drawing) {
@@ -223,9 +255,16 @@ export class AnnotationCanvas {
   }
 
   _onUp(e: PointerEvent) {
+    // End handle drag
+    if (this._handleDrag) {
+      this._handleDrag = null;
+      this._tapStart = null;
+      return;
+    }
+
     if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
 
-    // End drag mode
+    // End whole-shape drag mode
     if (this._dragging) {
       this._dragging = null;
       this._tapStart = null;
@@ -244,8 +283,22 @@ export class AnnotationCanvas {
       this._strokePoints = [];
       const pos = this._getPos(e);
       const hitIdx = this._hitTest(pos);
-      if (hitIdx >= 0 && this.onShapeTap) {
-        this.onShapeTap(hitIdx, this._tapStart.screenX, this._tapStart.screenY, this.shapes[hitIdx]);
+
+      if (hitIdx >= 0) {
+        if (hitIdx === this._selectedIndex) {
+          // Tap on an already-selected shape → open the change-type menu
+          if (this.onShapeTap) {
+            this.onShapeTap(hitIdx, this._tapStart.screenX, this._tapStart.screenY, this.shapes[hitIdx]);
+          }
+        } else {
+          // Tap on a non-selected shape → select it (handles appear)
+          this._selectedIndex = hitIdx;
+          this.redraw();
+        }
+      } else if (this._selectedIndex !== null) {
+        // Tap on empty canvas with something selected → deselect
+        this._selectedIndex = null;
+        this.redraw();
       }
       this._tapStart = null;
       return;
@@ -312,6 +365,97 @@ export class AnnotationCanvas {
     let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
     t = Math.max(0, Math.min(1, t));
     return this._dist(p, { x: a.x + t * dx, y: a.y + t * dy });
+  }
+
+  // ── Handles (selection UI) ──
+
+  private _handlesForShape(shape: Shape): { id: string; x: number; y: number }[] {
+    const out: { id: string; x: number; y: number }[] = [];
+    if (shape.type === "line" || shape.type === "arrow") {
+      out.push({ id: "start", x: shape.x1, y: shape.y1 });
+      out.push({ id: "end", x: shape.x2, y: shape.y2 });
+    } else if (shape.type === "angle" && shape.x3 != null && shape.y3 != null) {
+      out.push({ id: "start", x: shape.x1, y: shape.y1 });
+      out.push({ id: "vertex", x: shape.x2, y: shape.y2 });
+      out.push({ id: "end", x: shape.x3, y: shape.y3 });
+    } else if (shape.type === "circle") {
+      out.push({ id: "radius", x: shape.x2, y: shape.y2 });
+    } else if (shape.type === "oval") {
+      out.push({ id: "east", x: shape.x1 + shape.x2, y: shape.y1 });
+      out.push({ id: "west", x: shape.x1 - shape.x2, y: shape.y1 });
+      out.push({ id: "south", x: shape.x1, y: shape.y1 + shape.y2 });
+      out.push({ id: "north", x: shape.x1, y: shape.y1 - shape.y2 });
+    }
+    return out;
+  }
+
+  private _hitTestHandle(pos: Point, index: number): string | null {
+    const shape = this.shapes[index];
+    if (!shape) return null;
+    const handles = this._handlesForShape(shape);
+    // Handles are a larger target than shape-body hits so grabbing is easy.
+    const threshold = 0.035 / this._zoom;
+    let bestId: string | null = null;
+    let bestDist = Infinity;
+    for (const h of handles) {
+      const d = this._dist(pos, { x: h.x, y: h.y });
+      if (d < threshold && d < bestDist) {
+        bestDist = d;
+        bestId = h.id;
+      }
+    }
+    return bestId;
+  }
+
+  private _applyHandleDrag(index: number, handleId: string, pos: Point) {
+    const shape = this.shapes[index];
+    if (!shape) return;
+    if (shape.type === "line" || shape.type === "arrow") {
+      if (handleId === "start") { shape.x1 = pos.x; shape.y1 = pos.y; }
+      else if (handleId === "end") { shape.x2 = pos.x; shape.y2 = pos.y; }
+    } else if (shape.type === "angle") {
+      if (handleId === "start") { shape.x1 = pos.x; shape.y1 = pos.y; }
+      else if (handleId === "vertex") { shape.x2 = pos.x; shape.y2 = pos.y; }
+      else if (handleId === "end") { shape.x3 = pos.x; shape.y3 = pos.y; }
+    } else if (shape.type === "circle") {
+      if (handleId === "radius") { shape.x2 = pos.x; shape.y2 = pos.y; }
+    } else if (shape.type === "oval") {
+      const MIN = 0.005;
+      if (handleId === "east") shape.x2 = Math.max(MIN, pos.x - shape.x1);
+      else if (handleId === "west") shape.x2 = Math.max(MIN, shape.x1 - pos.x);
+      else if (handleId === "south") shape.y2 = Math.max(MIN, pos.y - shape.y1);
+      else if (handleId === "north") shape.y2 = Math.max(MIN, shape.y1 - pos.y);
+    }
+  }
+
+  private _drawHandles(index: number) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.width / dpr;
+    const h = this.canvas.height / dpr;
+    const shape = this.shapes[index];
+    if (!shape) return;
+    const color = shape.color ?? this.color;
+    const handles = this._handlesForShape(shape);
+    const r = 7 / this._zoom;
+
+    this.ctx.save();
+    for (const handle of handles) {
+      const x = handle.x * w;
+      const y = handle.y * h;
+      // Soft shadow so the handles pop off busy video backgrounds.
+      this.ctx.shadowColor = "rgba(0,0,0,0.55)";
+      this.ctx.shadowBlur = 4;
+      this.ctx.fillStyle = "#ffffff";
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, r, 0, Math.PI * 2);
+      this.ctx.fill();
+      // Colored ring on top (no shadow this time so the edge stays crisp).
+      this.ctx.shadowBlur = 0;
+      this.ctx.strokeStyle = color;
+      this.ctx.lineWidth = 2.5 / this._zoom;
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
   }
 
   // ── Change shape type ──
@@ -576,15 +720,24 @@ export class AnnotationCanvas {
     const h = this.canvas.height / dpr;
     this.ctx.clearRect(0, 0, w, h);
     for (let i = 0; i < this.shapes.length; i++) {
-      if (this._dragging?.index === i) {
+      const isDragging = this._dragging?.index === i;
+      const isSelected = this._selectedIndex === i;
+      if (isDragging || isSelected) {
         this.ctx.save();
         this.ctx.shadowColor = "#fff";
-        this.ctx.shadowBlur = 18;
+        this.ctx.shadowBlur = isDragging ? 18 : 10;
         this._drawShape(this.ctx, this.shapes[i]);
         this.ctx.restore();
       } else {
         this._drawShape(this.ctx, this.shapes[i]);
       }
+    }
+    // Draw handles for the selected shape on top of everything.
+    if (
+      this._selectedIndex != null &&
+      this._selectedIndex < this.shapes.length
+    ) {
+      this._drawHandles(this._selectedIndex);
     }
   }
 
@@ -709,11 +862,18 @@ export class AnnotationCanvas {
   }
 
   enable() { this.enabled = true; }
-  disable() { this.enabled = false; this.drawing = false; }
+  disable() {
+    this.enabled = false;
+    this.drawing = false;
+    this._selectedIndex = null;
+    this._handleDrag = null;
+  }
 
   undo() {
+    const lastIdx = this.shapes.length - 1;
     this.shapes.pop();
     this._rawStrokes.pop();
+    if (this._selectedIndex === lastIdx) this._selectedIndex = null;
     this.redraw();
   }
 
@@ -721,6 +881,11 @@ export class AnnotationCanvas {
     if (index >= 0 && index < this.shapes.length) {
       this.shapes.splice(index, 1);
       this._rawStrokes.splice(index, 1);
+      if (this._selectedIndex === index) {
+        this._selectedIndex = null;
+      } else if (this._selectedIndex !== null && this._selectedIndex > index) {
+        this._selectedIndex--;
+      }
       this.redraw();
     }
   }
@@ -728,6 +893,8 @@ export class AnnotationCanvas {
   clear() {
     this.shapes = [];
     this._rawStrokes = [];
+    this._selectedIndex = null;
+    this._handleDrag = null;
     this.redraw();
   }
 
@@ -737,6 +904,7 @@ export class AnnotationCanvas {
     this.shapes = annotations ? annotations.slice() : [];
     // No raw strokes for loaded annotations — tap-to-change won't be available
     this._rawStrokes = this.shapes.map(() => []);
+    this._selectedIndex = null;
     this.redraw();
   }
 
