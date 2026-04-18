@@ -7,7 +7,20 @@ import { candidates } from "./keywords";
 const LS_APPROVED = "reddit-ads/approved-candidates";
 const LS_REJECTED = "reddit-ads/rejected-candidates";
 const CLAUDE_CODE_URL = "http://100.74.13.60:7681/";
+const HELPER_URL = "http://100.74.13.60:7682";
 const STALE_DAYS = 14;
+
+function pingHelperRunUpdate() {
+  // Fire-and-forget. From HTTPS origins the mixed-content request will fail;
+  // that's fine — the link also opens Claude Code so Jason can type the
+  // command manually. When served from the tailnet/same-origin this triggers
+  // the command automatically.
+  fetch(`${HELPER_URL}/run-update`, {
+    method: "POST",
+    mode: "cors",
+    keepalive: true,
+  }).catch(() => {});
+}
 
 type Props = { generatedAt: string };
 
@@ -48,6 +61,7 @@ export default function Banners({ generatedAt }: Props) {
       {stale && (
         <a
           href={CLAUDE_CODE_URL}
+          onClick={() => pingHelperRunUpdate()}
           style={{
             display: "block",
             padding: "14px 16px",

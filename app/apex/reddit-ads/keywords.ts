@@ -191,6 +191,21 @@ export const candidates: Candidate[] = [
 // Rejected terms — never re-suggested.
 export const rejected: string[] = [];
 
+// Subreddits browsed in full (pagination through new + top) during every scan,
+// in addition to site-wide keyword searches.
+export const targetSubreddits: string[] = [
+  "ChronicPain",
+  "chronicpain",
+  "neuropathy",
+  "backpain",
+  "herniateddisc",
+  "sciatica",
+  "diabetes",
+  "Fibromyalgia",
+  "AskDocs",
+  "spinalstenosis",
+];
+
 // Flat list for the scraper.
 export function allActiveKeywords(): string[] {
   const base = Object.values(baseKeywords).flat();

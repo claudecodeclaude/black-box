@@ -13,6 +13,7 @@ import {
 
 const LS_APPROVED = "reddit-ads/approved-candidates";
 const LS_REJECTED = "reddit-ads/rejected-candidates";
+const HELPER_URL = "http://100.74.13.60:7682";
 
 type LocalApproval = { term: string; category: CategoryName };
 
@@ -27,6 +28,19 @@ function readList<T>(key: string): T[] {
 
 function writeList<T>(key: string, value: T[]) {
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function syncToHelper(approved: LocalApproval[], rejected: string[]) {
+  // Fire-and-forget. Mixed-content will block this from HTTPS origins, so
+  // localStorage remains the authoritative client-side store. When the UI is
+  // served same-origin (or over HTTPS via Tailscale cert), this succeeds and
+  // writes data/keywords-overlay.json on the Mac for the next scan.
+  fetch(`${HELPER_URL}/sync-approvals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved, rejected }),
+    keepalive: true,
+  }).catch(() => {});
 }
 
 export default function KeywordsPage() {
@@ -47,12 +61,14 @@ export default function KeywordsPage() {
     ];
     setLocalApproved(next);
     writeList(LS_APPROVED, next);
+    syncToHelper(next, localRejected);
   }
 
   function reject(c: Candidate) {
     const next = [...new Set([...localRejected, c.term])];
     setLocalRejected(next);
     writeList(LS_REJECTED, next);
+    syncToHelper(localApproved, next);
   }
 
   function undo(term: string) {
@@ -62,6 +78,7 @@ export default function KeywordsPage() {
     setLocalRejected(r);
     writeList(LS_APPROVED, a);
     writeList(LS_REJECTED, r);
+    syncToHelper(a, r);
   }
 
   const approvedSet = new Set(localApproved.map((a) => a.term));
