@@ -54,7 +54,7 @@ export default function RedditAdsPage() {
           gap: 6,
         }}
       >
-        {report.topics.map((topic, i) => (
+        {[...report.topics].sort((a, b) => b.count - a.count).map((topic, i) => (
           <li key={topic.slug}>
             <Link
               href={`/apex/reddit-ads/${topic.slug}`}
