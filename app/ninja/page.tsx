@@ -519,6 +519,29 @@ export default function NinjaPage() {
     setShowFrameGrid(false);
   }
 
+  function jumpToAdjacentFrame(direction: "prev" | "next") {
+    const video = videoRef.current;
+    const ann = annotationRef.current;
+    if (!video || !ann) return;
+    const sorted = [...framesRef.current].sort((a, b) => a.time - b.time);
+    if (sorted.length === 0) return;
+    const current = video.currentTime;
+    let target: FrameSnapshot | undefined;
+    if (direction === "next") {
+      target = sorted.find((f) => f.time > current + 0.01);
+      if (!target) target = sorted[0]; // wrap to first
+    } else {
+      const earlier = sorted.filter((f) => f.time < current - 0.01);
+      target = earlier[earlier.length - 1];
+      if (!target) target = sorted[sorted.length - 1]; // wrap to last
+    }
+    captureAndClear();
+    video.pause();
+    video.currentTime = target.time;
+    ann.setAnnotations(target.shapes);
+    setCurrentFrameIdx(framesRef.current.indexOf(target));
+  }
+
   function handleFrameDelete(idx: number) {
     setFrames((prev) => prev.filter((_, i) => i !== idx));
     setDirty(true);
@@ -695,6 +718,66 @@ export default function NinjaPage() {
               style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", touchAction: "none" }}
             />
           </div>
+
+          {/* Frame-skip arrows (left / right edges of video) */}
+          {frames.length > 1 && (
+            <>
+              <button
+                onClick={() => jumpToAdjacentFrame("prev")}
+                aria-label="Previous marked frame"
+                style={{
+                  position: "absolute",
+                  left: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  zIndex: 10,
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "rgba(0,0,0,0.55)",
+                  color: "#fff",
+                  fontSize: 22,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  paddingRight: 3,
+                }}
+              >
+                ‹
+              </button>
+              <button
+                onClick={() => jumpToAdjacentFrame("next")}
+                aria-label="Next marked frame"
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  zIndex: 10,
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "rgba(0,0,0,0.55)",
+                  color: "#fff",
+                  fontSize: 22,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  paddingLeft: 3,
+                }}
+              >
+                ›
+              </button>
+            </>
+          )}
 
           {/* Frame thumbnail stack (bottom-right corner) */}
           {frames.length > 0 && (
