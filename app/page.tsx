@@ -1,7 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { report } from "./apex/reddit-ads/data";
+import { candidates } from "./apex/reddit-ads/keywords";
+
+const LS_APPROVED = "reddit-ads/approved-candidates";
+const LS_REJECTED = "reddit-ads/rejected-candidates";
+const STALE_DAYS = 14;
+
+type Alert = {
+  label: string;
+  tone: "red" | "yellow";
+};
 
 type Tile = {
   kind: "tile";
@@ -9,6 +20,7 @@ type Tile = {
   name: string;
   description: string;
   external?: boolean;
+  alertId?: "reddit-ads";
 };
 
 type Folder = {
@@ -43,7 +55,8 @@ const home: HomeItem[] = [
         kind: "tile",
         href: "/apex/reddit-ads",
         name: "Reddit Ads",
-        description: "Monthly Reddit topic scan for neuropathy, sciatica, and disc/back pain — with video hooks and ad ideas per topic.",
+        description: "Bi-weekly Reddit topic scan for neuropathy, sciatica, and disc/back pain — with video hooks and ad ideas per topic.",
+        alertId: "reddit-ads",
       },
       {
         kind: "tile",
@@ -65,11 +78,42 @@ const tileStyle = {
   color: "inherit",
 } as const;
 
-function TileBody({ tile }: { tile: Tile }) {
+function alertBorder(tone: Alert["tone"]) {
+  return tone === "red" ? "#ff3b3b" : "#ffd34d";
+}
+
+function TileBody({ tile, alert }: { tile: Tile; alert?: Alert }) {
   return (
     <>
-      <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>
-        {tile.name}
+      <div
+        style={{
+          fontWeight: 600,
+          fontSize: 16,
+          marginBottom: 4,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span>{tile.name}</span>
+        {alert && (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 1,
+              padding: "2px 7px",
+              borderRadius: 999,
+              background:
+                alert.tone === "red" ? "#2a0e0e" : "#2a230e",
+              color: alert.tone === "red" ? "#ff6b6b" : "#ffd34d",
+              border: `1px solid ${alertBorder(alert.tone)}`,
+              textTransform: "uppercase",
+            }}
+          >
+            {alert.label}
+          </span>
+        )}
       </div>
       <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.4 }}>
         {tile.description}
@@ -78,20 +122,48 @@ function TileBody({ tile }: { tile: Tile }) {
   );
 }
 
-function TileLink({ tile }: { tile: Tile }) {
+function TileLink({ tile, alert }: { tile: Tile; alert?: Alert }) {
+  const style = alert
+    ? {
+        ...tileStyle,
+        borderLeft: `3px solid ${alertBorder(alert.tone)}`,
+      }
+    : tileStyle;
   return tile.external ? (
-    <a href={tile.href} style={tileStyle}>
-      <TileBody tile={tile} />
+    <a href={tile.href} style={style}>
+      <TileBody tile={tile} alert={alert} />
     </a>
   ) : (
-    <Link href={tile.href} style={tileStyle}>
-      <TileBody tile={tile} />
+    <Link href={tile.href} style={style}>
+      <TileBody tile={tile} alert={alert} />
     </Link>
   );
 }
 
-function FolderTile({ folder }: { folder: Folder }) {
+function FolderTile({
+  folder,
+  alertsById,
+}: {
+  folder: Folder;
+  alertsById: Record<string, Alert>;
+}) {
   const [open, setOpen] = useState(false);
+  const folderAlertTone: Alert["tone"] | null = (() => {
+    const tones = folder.items
+      .map((it) => (it.alertId ? alertsById[it.alertId]?.tone : null))
+      .filter((t): t is Alert["tone"] => t !== null && t !== undefined);
+    if (tones.includes("red")) return "red";
+    if (tones.includes("yellow")) return "yellow";
+    return null;
+  })();
+
+  const buttonStyle = folderAlertTone
+    ? {
+        ...tileStyle,
+        borderLeft: `3px solid ${alertBorder(folderAlertTone)}`,
+      }
+    : tileStyle;
+
   return (
     <div>
       <button
@@ -99,7 +171,7 @@ function FolderTile({ folder }: { folder: Folder }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         style={{
-          ...tileStyle,
+          ...buttonStyle,
           width: "100%",
           textAlign: "left",
           font: "inherit",
@@ -114,10 +186,25 @@ function FolderTile({ folder }: { folder: Folder }) {
             fontSize: 22,
             lineHeight: 1,
             flexShrink: 0,
+            position: "relative",
           }}
           aria-hidden
         >
           {open ? "📂" : "📁"}
+          {folderAlertTone && (
+            <span
+              style={{
+                position: "absolute",
+                top: -2,
+                right: -4,
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                background: alertBorder(folderAlertTone),
+                border: "2px solid var(--surface)",
+              }}
+            />
+          )}
         </span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -173,7 +260,11 @@ function FolderTile({ folder }: { folder: Folder }) {
           }}
         >
           {folder.items.map((item) => (
-            <TileLink key={item.href} tile={item} />
+            <TileLink
+              key={item.href}
+              tile={item}
+              alert={item.alertId ? alertsById[item.alertId] : undefined}
+            />
           ))}
         </div>
       )}
@@ -181,7 +272,42 @@ function FolderTile({ folder }: { folder: Folder }) {
   );
 }
 
+function useRedditAdsAlert(): Alert | undefined {
+  const [alert, setAlert] = useState<Alert | undefined>(undefined);
+  useEffect(() => {
+    const ageDays = Math.floor(
+      (Date.now() - new Date(report.generatedAt).getTime()) / 86_400_000
+    );
+    const stale = ageDays >= STALE_DAYS;
+
+    let pending = candidates.length;
+    try {
+      const approved = JSON.parse(
+        localStorage.getItem(LS_APPROVED) || "[]"
+      ) as { term: string }[];
+      const rejected = JSON.parse(
+        localStorage.getItem(LS_REJECTED) || "[]"
+      ) as string[];
+      const acted = new Set([...approved.map((a) => a.term), ...rejected]);
+      pending = candidates.filter((c) => !acted.has(c.term)).length;
+    } catch {}
+
+    if (stale) {
+      setAlert({ label: "Update", tone: "red" });
+    } else if (pending > 0) {
+      setAlert({ label: `${pending} to review`, tone: "yellow" });
+    } else {
+      setAlert(undefined);
+    }
+  }, []);
+  return alert;
+}
+
 export default function Home() {
+  const redditAdsAlert = useRedditAdsAlert();
+  const alertsById: Record<string, Alert> = {};
+  if (redditAdsAlert) alertsById["reddit-ads"] = redditAdsAlert;
+
   return (
     <main style={{ maxWidth: 480, margin: "0 auto", padding: "48px 20px" }}>
       <div style={{ marginBottom: 40 }}>
@@ -203,9 +329,13 @@ export default function Home() {
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {home.map((item, i) =>
           item.kind === "folder" ? (
-            <FolderTile key={i} folder={item} />
+            <FolderTile key={i} folder={item} alertsById={alertsById} />
           ) : (
-            <TileLink key={item.href} tile={item} />
+            <TileLink
+              key={item.href}
+              tile={item}
+              alert={item.alertId ? alertsById[item.alertId] : undefined}
+            />
           )
         )}
       </div>

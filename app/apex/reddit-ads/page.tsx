@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Banners from "./Banners";
 import { report } from "./data";
 
 export default function RedditAdsPage() {
@@ -17,7 +18,7 @@ export default function RedditAdsPage() {
         ← Back
       </Link>
 
-      <div style={{ marginTop: 24, marginBottom: 28 }}>
+      <div style={{ marginTop: 24, marginBottom: 20 }}>
         <h1 style={{ fontSize: 26, fontWeight: 700, letterSpacing: 1 }}>
           Reddit Ads
         </h1>
@@ -33,18 +34,42 @@ export default function RedditAdsPage() {
           <span style={{ color: "var(--text)" }}>{report.keywordSet}</span>.
           Tap any row to generate hooks and video ideas from real comments.
         </p>
-        <p
+        <div
           style={{
-            fontSize: 12,
-            color: "var(--muted)",
-            marginTop: 10,
-            letterSpacing: 1,
-            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginTop: 12,
           }}
         >
-          Last updated {generated} · {report.topics.length} topics
-        </p>
+          <span
+            style={{
+              fontSize: 12,
+              color: "var(--muted)",
+              letterSpacing: 1,
+              textTransform: "uppercase",
+            }}
+          >
+            Last updated {generated} · {report.topics.length} topics
+          </span>
+          <Link
+            href="/apex/reddit-ads/keywords"
+            style={{
+              fontSize: 12,
+              color: "var(--muted)",
+              textDecoration: "none",
+              padding: "4px 10px",
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              marginLeft: "auto",
+            }}
+          >
+            Keywords
+          </Link>
+        </div>
       </div>
+
+      <Banners generatedAt={report.generatedAt} />
 
       <ol
         style={{
