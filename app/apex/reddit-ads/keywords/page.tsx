@@ -73,18 +73,24 @@ export default function KeywordsPage() {
     syncToHelper(localApproved, next);
   }
 
-  function undo(term: string) {
-    const a = localApproved.filter((x) => x.term !== term);
-    const r = localRejected.filter((x) => x !== term);
-    setLocalApproved(a);
-    setLocalRejected(r);
-    writeList(LS_APPROVED, a);
-    writeList(LS_REJECTED, r);
-    syncToHelper(a, r);
-  }
-
   function rejectTerm(term: string) {
     const next = [...new Set([...localRejected, term])];
+    setLocalRejected(next);
+    writeList(LS_REJECTED, next);
+    syncToHelper(localApproved, next);
+    setSelectedKeyword(null);
+  }
+
+  function unapproveTerm(term: string) {
+    const next = localApproved.filter((a) => a.term !== term);
+    setLocalApproved(next);
+    writeList(LS_APPROVED, next);
+    syncToHelper(next, localRejected);
+    setSelectedKeyword(null);
+  }
+
+  function restoreTerm(term: string) {
+    const next = localRejected.filter((t) => t !== term);
     setLocalRejected(next);
     writeList(LS_REJECTED, next);
     syncToHelper(localApproved, next);
@@ -96,12 +102,19 @@ export default function KeywordsPage() {
   const actedSet = new Set([...approvedSet, ...rejectedAllSet]);
   const pending = candidates.filter((c) => !actedSet.has(c.term));
 
-  // Filter out rejected terms from the displayed lists.
+  // Active list = base ∪ approved candidates, minus rejected — merged per category.
   const activeBase: Record<CategoryName, string[]> = Object.fromEntries(
     (Object.entries(baseKeywords) as [CategoryName, string[]][]).map(
       ([cat, terms]) => [cat, terms.filter((t) => !rejectedAllSet.has(t))]
     )
   ) as Record<CategoryName, string[]>;
+  for (const a of localApproved) {
+    if (rejectedAllSet.has(a.term)) continue;
+    const bucket = activeBase[a.category];
+    if (!bucket) continue;
+    if (!bucket.includes(a.term)) bucket.push(a.term);
+  }
+
   const activeMisspellings = misspellings.filter(
     (m) => !rejectedAllSet.has(m)
   );
@@ -109,6 +122,13 @@ export default function KeywordsPage() {
   const totalBase = Object.values(activeBase).flat().length;
   const totalMisspellings = activeMisspellings.length;
   const rejectedAll = [...new Set([...rejectedBase, ...localRejected])];
+
+  // Determine the action the popup should show for a given term.
+  function popupActionFor(term: string): "reject" | "unapprove" | "restore" {
+    if (rejectedAllSet.has(term)) return "restore";
+    if (approvedSet.has(term)) return "unapprove";
+    return "reject";
+  }
 
   return (
     <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 20px 64px" }}>
@@ -161,36 +181,6 @@ export default function KeywordsPage() {
         </section>
       )}
 
-      {/* Saved local actions (not yet applied to base) */}
-      {hydrated && (localApproved.length > 0 || localRejected.length > 0) && (
-        <section style={{ marginBottom: 32 }}>
-          <SectionHeader
-            title="Pending to apply"
-            subtitle="Your choices save locally and get applied on the next scan."
-          />
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
-            {localApproved.map((a) => (
-              <ActionRow
-                key={`a-${a.term}`}
-                label={a.term}
-                tag={`approve → ${a.category}`}
-                tone="approve"
-                onUndo={() => undo(a.term)}
-              />
-            ))}
-            {localRejected.map((t) => (
-              <ActionRow
-                key={`r-${t}`}
-                label={t}
-                tag="reject"
-                tone="reject"
-                onUndo={() => undo(t)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Base keywords by category */}
       <section style={{ marginBottom: 32 }}>
         <SectionHeader title="Base keywords" badge={`${totalBase}`} />
@@ -229,14 +219,17 @@ export default function KeywordsPage() {
       </section>
 
       {/* Rejected */}
-      <RejectedSection terms={rejectedAll} />
+      <RejectedSection terms={rejectedAll} onSelect={setSelectedKeyword} />
 
       {/* Keyword detail popup */}
       {selectedKeyword && (
         <KeywordPopup
           term={selectedKeyword}
           hits={hitCounts[selectedKeyword]}
+          action={popupActionFor(selectedKeyword)}
           onReject={() => rejectTerm(selectedKeyword)}
+          onUnapprove={() => unapproveTerm(selectedKeyword)}
+          onRestore={() => restoreTerm(selectedKeyword)}
           onClose={() => setSelectedKeyword(null)}
         />
       )}
@@ -388,53 +381,6 @@ function CandidateCard({
   );
 }
 
-function ActionRow({
-  label,
-  tag,
-  tone,
-  onUndo,
-}: {
-  label: string;
-  tag: string;
-  tone: "approve" | "reject";
-  onUndo: () => void;
-}) {
-  const toneColor = tone === "approve" ? "#9fd89f" : "#e6a0a0";
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "10px 12px",
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-      }}
-    >
-      <span style={{ fontSize: 14, flex: 1 }}>{label}</span>
-      <span style={{ fontSize: 11, color: toneColor, letterSpacing: 0.5 }}>
-        {tag}
-      </span>
-      <button
-        type="button"
-        onClick={onUndo}
-        style={{
-          background: "transparent",
-          border: "1px solid var(--border)",
-          color: "var(--muted)",
-          borderRadius: 6,
-          padding: "4px 10px",
-          fontSize: 12,
-          cursor: "pointer",
-        }}
-      >
-        undo
-      </button>
-    </div>
-  );
-}
-
 function KeywordChips({
   terms,
   muted = false,
@@ -488,14 +434,45 @@ function KeywordChips({
 function KeywordPopup({
   term,
   hits,
+  action,
   onReject,
+  onUnapprove,
+  onRestore,
   onClose,
 }: {
   term: string;
   hits: number | undefined;
+  action: "reject" | "unapprove" | "restore";
   onReject: () => void;
+  onUnapprove: () => void;
+  onRestore: () => void;
   onClose: () => void;
 }) {
+  const { label, handler, tone } =
+    action === "unapprove"
+      ? { label: "Unapprove", handler: onUnapprove, tone: "neutral" as const }
+      : action === "restore"
+      ? { label: "Restore", handler: onRestore, tone: "approve" as const }
+      : { label: "Reject", handler: onReject, tone: "reject" as const };
+
+  const toneStyles =
+    tone === "reject"
+      ? {
+          background: "#3a1a1a",
+          border: "1px solid #6f2f2f",
+          color: "#f0cfcf",
+        }
+      : tone === "approve"
+      ? {
+          background: "#1f3f1f",
+          border: "1px solid #2f6f2f",
+          color: "#cff0cf",
+        }
+      : {
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          color: "var(--text)",
+        };
   return (
     <div
       onClick={onClose}
@@ -570,14 +547,12 @@ function KeywordPopup({
 
         <button
           type="button"
-          onClick={onReject}
+          onClick={handler}
           style={{
             display: "block",
             width: "100%",
             padding: "12px 14px",
-            background: "#3a1a1a",
-            border: "1px solid #6f2f2f",
-            color: "#f0cfcf",
+            ...toneStyles,
             borderRadius: 10,
             fontSize: 15,
             fontWeight: 600,
@@ -585,7 +560,7 @@ function KeywordPopup({
             marginBottom: 8,
           }}
         >
-          Reject
+          {label}
         </button>
 
         <button
@@ -610,7 +585,13 @@ function KeywordPopup({
   );
 }
 
-function RejectedSection({ terms }: { terms: string[] }) {
+function RejectedSection({
+  terms,
+  onSelect,
+}: {
+  terms: string[];
+  onSelect: (t: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   if (terms.length === 0) return null;
   return (
@@ -657,7 +638,7 @@ function RejectedSection({ terms }: { terms: string[] }) {
       </p>
       {open && (
         <div style={{ marginTop: 12 }}>
-          <KeywordChips terms={terms} muted />
+          <KeywordChips terms={terms} muted onSelect={onSelect} />
         </div>
       )}
     </section>

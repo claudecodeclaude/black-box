@@ -1,0 +1,21 @@
+{
+  "approved": [
+    {
+      "term": "polyneuropathy",
+      "category": "Neuropathy"
+    },
+    {
+      "term": "neuropathic pain",
+      "category": "Neuropathy"
+    },
+    {
+      "term": "facet joint syndrome",
+      "category": "Disc / Spine"
+    }
+  ],
+  "rejected": [
+    "spondylolisthesis",
+    "radicalopathy"
+  ],
+  "updatedAt": "2026-04-18T03:14:54.131Z"
+}
