@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Call Claude</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <div id="orb" aria-hidden="true"></div>
+
+      <div id="state" class="state">tap to start</div>
+
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+      <div id="response" class="response" aria-live="polite"></div>
+
+      <div class="controls">
+        <button id="startBtn" class="btn primary">start</button>
+        <button id="stopBtn" class="btn" disabled>stop</button>
+        <button id="resetBtn" class="btn">new conversation</button>
+      </div>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
