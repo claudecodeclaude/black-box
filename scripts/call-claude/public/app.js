@@ -334,15 +334,33 @@ async function sendTurn(userText) {
 
 // ---------- controls ----------
 
-startBtn.addEventListener("click", async () => {
-  const ok = await openMic();
-  if (!ok) return;
-  await acquireWakeLock();
-  // Prime HTMLAudioElement via user gesture — required by iOS Safari for
-  // subsequent programmatic playback within this session.
+// Tiny silent WAV used to unlock the <audio> element during a user gesture.
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRhwAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+startBtn.addEventListener("click", (ev) => {
+  ev.preventDefault();
+  // === SYNCHRONOUS portion of the user gesture ===
+  // Must happen before any await so iOS considers the audio element "unlocked".
   const el = ensureAudio();
-  try { el.muted = true; await el.play(); el.pause(); el.muted = false; } catch {}
-  startVoiceLoop();
+  el.src = SILENT_WAV;
+  el.play().catch(() => {});
+
+  stateEl.textContent = "requesting mic...";
+
+  // Now kick off the async work
+  (async () => {
+    try {
+      const ok = await openMic();
+      if (!ok) return; // openMic already set error state
+      await acquireWakeLock();
+      startVoiceLoop();
+    } catch (err) {
+      console.error("start failed", err);
+      setState("error");
+      stateEl.textContent = `start failed: ${err.name || err.message || err}`;
+    }
+  })();
 });
 
 stopBtn.addEventListener("click", () => {
