@@ -57,6 +57,24 @@ if (!SR) {
   stateEl.textContent = "speech recognition not supported in this browser";
 }
 
+// Prime mic permission via getUserMedia so Safari actually prompts.
+// Web Speech API alone doesn't always trigger the iOS permission dialog.
+let micPrimed = false;
+async function primeMic() {
+  if (micPrimed) return true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    micPrimed = true;
+    return true;
+  } catch (err) {
+    console.error("getUserMedia failed", err);
+    setState("error");
+    stateEl.textContent = `mic blocked: ${err.name || err.message}`;
+    return false;
+  }
+}
+
 function startListening() {
   if (!SR) return;
   setState("listening");
@@ -87,9 +105,14 @@ function startListening() {
     console.warn("recognition error", e.error);
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       setState("error");
-      stateEl.textContent = "mic permission denied";
+      stateEl.textContent = `mic blocked (${e.error}) — check Settings → Safari → Microphone`;
+    } else if (e.error === "audio-capture") {
+      setState("error");
+      stateEl.textContent = "no mic detected";
+    } else if (e.error && e.error !== "no-speech" && e.error !== "aborted") {
+      console.warn("unhandled recognition error:", e.error);
     }
-    // no-speech: just restart
+    // no-speech / aborted: just restart via onend
   };
 
   recognition.onend = () => {
@@ -204,6 +227,9 @@ async function sendTurn(userText) {
 
 startBtn.addEventListener("click", async () => {
   if (!SR) return;
+  // Prime mic permission with a real getUserMedia call (iOS Safari needs this)
+  const ok = await primeMic();
+  if (!ok) return;
   await acquireWakeLock();
   // iOS: kick the TTS engine with a silent utterance so later calls work without extra gestures
   const warm = new SpeechSynthesisUtterance(" ");

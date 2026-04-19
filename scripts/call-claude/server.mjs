@@ -211,7 +211,10 @@ function serveStatic(req, res) {
       ".svg": "image/svg+xml",
       ".png": "image/png",
     };
-    res.writeHead(200, { "Content-Type": types[ext] || "application/octet-stream" });
+    res.writeHead(200, {
+      "Content-Type": types[ext] || "application/octet-stream",
+      "Cache-Control": "no-store",
+    });
     res.end(data);
   });
 }
