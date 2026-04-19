@@ -65,24 +65,50 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state !== "idle") acquireWakeLock();
 });
 
-// ---------- TTS (still browser SpeechSynthesis) ----------
+// ---------- TTS (server-side via macOS `say`, streamed back as m4a) ----------
 
-const synth = window.speechSynthesis;
-function speak(text) {
-  return new Promise((resolve) => {
-    if (!text) return resolve();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    u.pitch = 1.0;
-    const voices = synth.getVoices();
-    const preferred =
-      voices.find((v) => /Samantha|Karen|Daniel|Serena/i.test(v.name) && v.lang.startsWith("en")) ||
-      voices.find((v) => v.lang.startsWith("en"));
-    if (preferred) u.voice = preferred;
-    u.onend = resolve;
-    u.onerror = resolve;
-    synth.speak(u);
-  });
+// Reuse a single <audio> element — iOS needs it to have been "touched" by a
+// user gesture at least once, so we create it on first start-tap and keep it.
+let audioEl = null;
+function ensureAudio() {
+  if (audioEl) return audioEl;
+  audioEl = document.createElement("audio");
+  audioEl.playsInline = true;
+  audioEl.preload = "auto";
+  document.body.appendChild(audioEl);
+  return audioEl;
+}
+
+async function speak(text) {
+  if (!text) return;
+  try {
+    const res = await fetch("/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const el = ensureAudio();
+    el.src = url;
+    await new Promise((resolve) => {
+      const done = () => {
+        el.onended = null;
+        el.onerror = null;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      el.onended = done;
+      el.onerror = done;
+      el.play().catch((err) => {
+        console.error("audio play failed", err);
+        done();
+      });
+    });
+  } catch (err) {
+    console.error("speak failed", err);
+  }
 }
 
 // ---------- mic setup ----------
@@ -312,16 +338,16 @@ startBtn.addEventListener("click", async () => {
   const ok = await openMic();
   if (!ok) return;
   await acquireWakeLock();
-  // iOS: prime TTS engine with a silent utterance
-  const warm = new SpeechSynthesisUtterance(" ");
-  warm.volume = 0;
-  synth.speak(warm);
+  // Prime HTMLAudioElement via user gesture — required by iOS Safari for
+  // subsequent programmatic playback within this session.
+  const el = ensureAudio();
+  try { el.muted = true; await el.play(); el.pause(); el.muted = false; } catch {}
   startVoiceLoop();
 });
 
 stopBtn.addEventListener("click", () => {
   setState("idle");
-  try { synth.cancel(); } catch {}
+  try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
   releaseWakeLock();
@@ -334,10 +360,5 @@ resetBtn.addEventListener("click", async () => {
   transcriptEl.textContent = "";
   stateEl.textContent = "new conversation — tap start";
 });
-
-if (synth && typeof synth.getVoices === "function") {
-  synth.getVoices();
-  synth.onvoiceschanged = () => synth.getVoices();
-}
 
 setState("idle");

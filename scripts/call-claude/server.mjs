@@ -37,6 +37,8 @@ const KEY_PATH = process.env.CALL_CLAUDE_KEY;
 const WHISPER_BIN = process.env.CALL_CLAUDE_WHISPER || "/opt/homebrew/bin/whisper-cli";
 const WHISPER_MODEL = process.env.CALL_CLAUDE_WHISPER_MODEL || path.join(STATE_DIR, "models/ggml-small.en.bin");
 const FFMPEG_BIN = process.env.CALL_CLAUDE_FFMPEG || "/opt/homebrew/bin/ffmpeg";
+const SAY_BIN = process.env.CALL_CLAUDE_SAY || "/usr/bin/say";
+const SAY_VOICE = process.env.CALL_CLAUDE_VOICE || "Samantha";
 
 const SYSTEM_PROMPT = `You are Claude speaking with Jason hands-free while he drives.
 Your responses will be read aloud by text-to-speech, so:
@@ -270,6 +272,46 @@ function handleHealth(_req, res) {
   });
 }
 
+async function handleSpeak(req, res) {
+  const raw = await readBody(req);
+  let payload;
+  try { payload = raw ? JSON.parse(raw) : {}; }
+  catch { return sendJson(res, 400, { error: "invalid JSON" }); }
+  const text = (payload.text || "").trim().slice(0, 5000);
+  if (!text) return sendJson(res, 400, { error: "no text" });
+
+  const id = randomUUID();
+  const tmpDir = os.tmpdir();
+  const aiff = path.join(tmpDir, `call-claude-tts-${id}.aiff`);
+  const m4a = path.join(tmpDir, `call-claude-tts-${id}.m4a`);
+  const cleanup = () => {
+    for (const p of [aiff, m4a]) { try { fs.unlinkSync(p); } catch {} }
+  };
+
+  try {
+    const t0 = Date.now();
+    await execFileAsync(SAY_BIN, ["-v", SAY_VOICE, "-o", aiff, "--", text]);
+    await execFileAsync(FFMPEG_BIN, [
+      "-y", "-i", aiff,
+      "-c:a", "aac", "-b:a", "96k",
+      m4a,
+    ]);
+    const audio = fs.readFileSync(m4a);
+    log(`tts ${text.length}ch → ${audio.length}B in ${Date.now() - t0}ms`);
+    res.writeHead(200, {
+      "Content-Type": "audio/mp4",
+      "Content-Length": audio.length,
+      "Cache-Control": "no-store",
+    });
+    res.end(audio);
+  } catch (e) {
+    log(`speak error: ${e.message || e}`);
+    sendJson(res, 500, { error: String(e.message || e) });
+  } finally {
+    cleanup();
+  }
+}
+
 function serveStatic(req, res) {
   const url = req.url || "/";
   const cleaned = url.split("?")[0];
@@ -304,6 +346,7 @@ const handler = async (req, res) => {
     if (req.method === "POST" && url === "/api/turn") return handleTurn(req, res);
     if (req.method === "POST" && url === "/api/reset") return handleReset(req, res);
     if (req.method === "POST" && url === "/api/transcribe") return handleTranscribe(req, res);
+    if (req.method === "POST" && url === "/api/speak") return handleSpeak(req, res);
     if (req.method === "GET"  && url === "/api/health") return handleHealth(req, res);
     if (req.method === "GET") return serveStatic(req, res);
     sendJson(res, 404, { error: "not found" });
