@@ -35,7 +35,7 @@ const CLIENT_ID = required("REDDIT_CLIENT_ID");
 const CLIENT_SECRET = required("REDDIT_CLIENT_SECRET");
 const USERNAME = required("REDDIT_USERNAME");
 const PASSWORD = required("REDDIT_PASSWORD");
-const USER_AGENT = process.env.REDDIT_USER_AGENT || "black-box-ads-scrape/0.1";
+const USER_AGENT = process.env.REDDIT_USER_AGENT || "black-box-research/0.1";
 
 function required(key: string): string {
   const v = process.env[key];
