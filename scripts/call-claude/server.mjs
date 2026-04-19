@@ -15,10 +15,14 @@
 import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +34,9 @@ const STATE_DIR = process.env.CALL_CLAUDE_STATE || "/Users/jasonslagel/.call-cla
 const SESSION_FILE = path.join(STATE_DIR, "session-id");
 const CERT_PATH = process.env.CALL_CLAUDE_CERT;
 const KEY_PATH = process.env.CALL_CLAUDE_KEY;
+const WHISPER_BIN = process.env.CALL_CLAUDE_WHISPER || "/opt/homebrew/bin/whisper-cli";
+const WHISPER_MODEL = process.env.CALL_CLAUDE_WHISPER_MODEL || path.join(STATE_DIR, "models/ggml-small.en.bin");
+const FFMPEG_BIN = process.env.CALL_CLAUDE_FFMPEG || "/opt/homebrew/bin/ffmpeg";
 
 const SYSTEM_PROMPT = `You are Claude speaking with Jason hands-free while he drives.
 Your responses will be read aloud by text-to-speech, so:
@@ -184,6 +191,76 @@ function handleReset(_req, res) {
   sendJson(res, 200, { ok: true });
 }
 
+function readRawBody(req, maxBytes = 25 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on("data", (c) => {
+      total += c.length;
+      if (total > maxBytes) { reject(new Error("body too large")); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+async function handleTranscribe(req, res) {
+  if (!fs.existsSync(WHISPER_MODEL)) {
+    return sendJson(res, 500, { error: `whisper model missing at ${WHISPER_MODEL}` });
+  }
+  let audio;
+  try { audio = await readRawBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  if (!audio.length) return sendJson(res, 400, { error: "empty body" });
+
+  const id = randomUUID();
+  const tmpDir = os.tmpdir();
+  const inputExt = (req.headers["content-type"] || "").includes("webm") ? "webm" : "m4a";
+  const inputPath = path.join(tmpDir, `call-claude-${id}.${inputExt}`);
+  const wavPath = path.join(tmpDir, `call-claude-${id}.wav`);
+  fs.writeFileSync(inputPath, audio);
+
+  const cleanup = () => {
+    for (const p of [inputPath, wavPath]) { try { fs.unlinkSync(p); } catch {} }
+  };
+
+  try {
+    // Convert to 16 kHz mono WAV that whisper.cpp expects
+    await execFileAsync(FFMPEG_BIN, [
+      "-y", "-i", inputPath,
+      "-ar", "16000", "-ac", "1", "-f", "wav",
+      wavPath,
+    ]);
+
+    const t0 = Date.now();
+    const { stdout } = await execFileAsync(WHISPER_BIN, [
+      "-m", WHISPER_MODEL,
+      "-f", wavPath,
+      "-nt",           // no timestamps
+      "-otxt", "-of", path.join(tmpDir, `call-claude-${id}`),
+      "-l", "en",
+      "--no-prints",
+    ]);
+    let text = "";
+    const txtPath = path.join(tmpDir, `call-claude-${id}.txt`);
+    if (fs.existsSync(txtPath)) {
+      text = fs.readFileSync(txtPath, "utf8").trim();
+      try { fs.unlinkSync(txtPath); } catch {}
+    } else {
+      text = stdout.trim();
+    }
+    const ms = Date.now() - t0;
+    log(`transcribed ${audio.length}B in ${ms}ms: ${text.slice(0, 80)}`);
+    sendJson(res, 200, { text, ms });
+  } catch (e) {
+    log(`transcribe error: ${e.message || e}`);
+    sendJson(res, 500, { error: String(e.message || e) });
+  } finally {
+    cleanup();
+  }
+}
+
 function handleHealth(_req, res) {
   sendJson(res, 200, {
     ok: true,
@@ -226,6 +303,7 @@ const handler = async (req, res) => {
     const url = (req.url || "/").split("?")[0];
     if (req.method === "POST" && url === "/api/turn") return handleTurn(req, res);
     if (req.method === "POST" && url === "/api/reset") return handleReset(req, res);
+    if (req.method === "POST" && url === "/api/transcribe") return handleTranscribe(req, res);
     if (req.method === "GET"  && url === "/api/health") return handleHealth(req, res);
     if (req.method === "GET") return serveStatic(req, res);
     sendJson(res, 404, { error: "not found" });
