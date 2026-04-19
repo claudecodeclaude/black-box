@@ -293,9 +293,16 @@ async function sendTurn(userText) {
     .replace(/`([^`]+)`/g, "$1")
     .replace(/[*_#>]/g, "")
     .trim();
+
+  // iOS Safari routes audio to the earpiece (and at very low volume) whenever
+  // a mic stream is live via getUserMedia. Fully release the mic so the audio
+  // session returns to playback mode, speak, then reopen the mic.
+  closeMic();
   await speak(spoken);
 
   if (state === "idle") return;
+  const reopened = await openMic();
+  if (!reopened) return;
   startVoiceLoop();
 }
 
