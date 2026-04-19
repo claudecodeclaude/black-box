@@ -40,11 +40,25 @@ const home: HomeItem[] = [
     description: "Upload ninja run videos, annotate frames, and save attempts for review.",
   },
   {
-    kind: "tile",
-    href: "https://jasons-mac-mini-1.taile58089.ts.net:7681/",
-    name: "Claude Code",
-    description: "Open a terminal into the Mac Mini's Claude Code session over Tailscale.",
-    external: true,
+    kind: "folder",
+    name: "Claude",
+    description: "Remote access to the Mac Mini's Claude Code session.",
+    items: [
+      {
+        kind: "tile",
+        href: "https://jasons-mac-mini-1.taile58089.ts.net:7681/",
+        name: "Claude Code",
+        description: "Open a terminal into the Mac Mini's Claude Code session over Tailscale.",
+        external: true,
+      },
+      {
+        kind: "tile",
+        href: "https://jasons-mac-mini-1.taile58089.ts.net:7682/",
+        name: "Call Claude",
+        description: "Hands-free voice conversation with Claude Code — speak and listen.",
+        external: true,
+      },
+    ],
   },
   {
     kind: "folder",
