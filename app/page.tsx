@@ -40,6 +40,12 @@ const home: HomeItem[] = [
     description: "Upload ninja run videos, annotate frames, and save attempts for review.",
   },
   {
+    kind: "tile",
+    href: "/cleaning",
+    name: "Cleaning",
+    description: "Jodi & Cody's rotating 5-week cleaning checklist — Gameboy-style.",
+  },
+  {
     kind: "folder",
     name: "Claude",
     description: "Remote access to the Mac Mini's Claude Code session.",
