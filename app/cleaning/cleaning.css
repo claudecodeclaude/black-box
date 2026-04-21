@@ -231,4 +231,110 @@
   color: var(--gb-ink);
   text-decoration: none;
   margin-bottom: 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.gb-future-btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  margin-top: 20px;
+  background: #1a1a1a;
+  color: #fff;
+  border: 3px solid #1a1a1a;
+  box-shadow: 4px 4px 0 var(--gb-accent);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+.gb-future-btn:hover { background: var(--gb-accent); }
+
+.gb-menu-item {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: #fff;
+  border: 2px solid var(--gb-ink);
+  font-family: inherit;
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--gb-ink);
+}
+.gb-menu-item:hover { background: var(--gb-yellow); }
+.gb-menu-item.back { background: #eee; }
+
+.gb-affirmation {
+  padding: 12px 10px;
+  background: linear-gradient(90deg, #fff7d0, #ffe8ae);
+  border-top: 2px dotted #ddaa00;
+  border-bottom: 2px dotted #ddaa00;
+  font-size: 9px;
+  line-height: 1.7;
+  color: #6a4a00;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gb-affirmation-star {
+  flex-shrink: 0;
+  font-size: 16px;
+  animation: gb-twinkle 1.6s infinite ease-in-out;
+}
+@keyframes gb-twinkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.15) rotate(10deg); }
+}
+
+.gb-mystery-pop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 215, 42, 0.35);
+  z-index: 300;
+  pointer-events: none;
+  animation: gb-mystery-in 0.2s ease-out;
+}
+@keyframes gb-mystery-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes gb-pika-dance {
+  from { transform: translateY(0) rotate(-3deg); }
+  to { transform: translateY(-8px) rotate(3deg); }
+}
+
+.gb-date-input {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid var(--gb-ink);
+  font-family: inherit;
+  font-size: 11px;
+  background: #fff;
+  margin: 8px 0 12px;
+}
+
+.gb-freq-preset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.gb-freq-preset button {
+  padding: 10px 6px;
+  background: #fff;
+  border: 2px solid var(--gb-ink);
+  font-family: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  text-align: center;
+}
+.gb-freq-preset button.on {
+  background: var(--gb-accent);
+  color: #fff;
 }
