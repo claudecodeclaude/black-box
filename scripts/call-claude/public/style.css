@@ -65,6 +65,11 @@ body.state-error #orb {
   background: radial-gradient(circle at 30% 30%, #ff4d4d, #4a1a1a 70%);
   box-shadow: 0 0 60px rgba(255, 77, 77, 0.5);
 }
+body.state-muted #orb {
+  background: radial-gradient(circle at 30% 30%, #666, #222 70%);
+  box-shadow: 0 0 40px rgba(120, 120, 120, 0.3);
+  opacity: 0.55;
+}
 
 @keyframes pulse {
   0%, 100% { transform: scale(1); }

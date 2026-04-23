@@ -17,10 +17,12 @@ const startBtn = $("startBtn");
 const stopBtn = $("stopBtn");
 const resetBtn = $("resetBtn");
 const overModeBtn = $("overModeBtn");
+const muteBtn = $("muteBtn");
 
 let state = "idle";
 let currentTurn = null; // AbortController for /api/turn
 let wakeLock = null;
+let muted = false; // mic paused — call stays alive, nothing is transcribed
 
 // "over" mode: buffer transcripts across silence breaks until the user
 // says "over", then send the whole thing as one turn.
@@ -79,9 +81,10 @@ function setState(next) {
     speaking: "speaking...",
     error: "error — tap to retry",
   };
-  stateEl.textContent = labels[next] || next;
+  stateEl.textContent = next === "muted" ? "muted — tap unmute" : (labels[next] || next);
   startBtn.disabled = next !== "idle" && next !== "error";
   stopBtn.disabled = next === "idle" || next === "error";
+  muteBtn.disabled = next === "idle" || next === "error";
 }
 
 // ---------- wake lock ----------
@@ -292,7 +295,7 @@ async function onRecordingStopped() {
   }
 
   if (!text || text.length < 2) {
-    if (state !== "idle") startVoiceLoop();
+    if (state !== "idle" && !muted) startVoiceLoop();
     return;
   }
 
@@ -304,7 +307,7 @@ async function onRecordingStopped() {
         pendingUserLine = appendLine("user pending", "you");
       }
       setLineText(pendingUserLine, combined);
-      if (state !== "idle") startVoiceLoop();
+      if (state !== "idle" && !muted) startVoiceLoop();
       return;
     }
     // Standalone "over" → commit buffer and send.
@@ -314,7 +317,7 @@ async function onRecordingStopped() {
     pendingUserLine = null;
     if (!finalText) {
       if (committedLine) committedLine.remove();
-      if (state !== "idle") startVoiceLoop();
+      if (state !== "idle" && !muted) startVoiceLoop();
       return;
     }
     committedLine.classList.remove("pending");
@@ -391,7 +394,7 @@ async function sendTurn(userText) {
   closeMic();
   await speak(spoken);
 
-  if (state === "idle") return;
+  if (state === "idle" || muted) return;
   const reopened = await openMic();
   if (!reopened) return;
   startVoiceLoop();
@@ -430,6 +433,9 @@ startBtn.addEventListener("click", (ev) => {
 
 stopBtn.addEventListener("click", () => {
   setState("idle");
+  muted = false;
+  muteBtn.setAttribute("aria-pressed", "false");
+  muteBtn.textContent = "mute mic";
   try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
@@ -450,6 +456,26 @@ overModeBtn.addEventListener("click", () => {
   overMode = !overMode;
   overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
   if (!overMode) overBuffer = [];
+});
+
+muteBtn.addEventListener("click", async () => {
+  if (state === "idle" || state === "error") return;
+  if (!muted) {
+    muted = true;
+    muteBtn.setAttribute("aria-pressed", "true");
+    muteBtn.textContent = "unmute mic";
+    try { currentTurn?.abort(); } catch {}
+    try { audioEl?.pause(); } catch {}
+    closeMic();
+    setState("muted");
+  } else {
+    muted = false;
+    muteBtn.setAttribute("aria-pressed", "false");
+    muteBtn.textContent = "mute mic";
+    const ok = await openMic();
+    if (!ok) return;
+    startVoiceLoop();
+  }
 });
 
 setState("idle");
