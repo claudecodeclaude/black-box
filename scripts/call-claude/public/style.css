@@ -85,23 +85,36 @@ body.state-error #orb {
   min-height: 20px;
 }
 
-.transcript,
-.response {
+.log {
   width: 100%;
   max-width: 520px;
   font-size: 18px;
   line-height: 1.5;
   padding: 12px 16px;
   border-radius: 12px;
-  min-height: 48px;
   margin-top: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-
-.transcript { color: var(--accent); }
-.response { color: var(--fg); }
-.transcript:empty, .response:empty { display: none; }
+.log:empty { display: none; }
+.log .line {
+  word-wrap: break-word;
+}
+.log .line.user { color: var(--accent); }
+.log .line.assistant { color: var(--fg); }
+.log .line.pending { opacity: 0.55; }
+.log .line .speaker {
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 6px;
+}
 
 .controls {
   display: flex;

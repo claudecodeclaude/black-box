@@ -12,8 +12,7 @@
 
 const $ = (id) => document.getElementById(id);
 const stateEl = $("state");
-const transcriptEl = $("transcript");
-const responseEl = $("response");
+const logEl = $("log");
 const startBtn = $("startBtn");
 const stopBtn = $("stopBtn");
 const resetBtn = $("resetBtn");
@@ -28,6 +27,33 @@ let wakeLock = null;
 let overMode = false;
 let overBuffer = [];
 const OVER_RE = /\s*\bover\b[\s.!?,]*$/i;
+
+// Running chat log elements
+let pendingUserLine = null; // user line being built up during overMode buffering
+let currentAssistantLine = null; // assistant line being updated while streaming
+
+function appendLine(role, speakerLabel, text = "") {
+  const line = document.createElement("div");
+  line.className = `line ${role}`;
+  const speaker = document.createElement("span");
+  speaker.className = "speaker";
+  speaker.textContent = speakerLabel;
+  const body = document.createElement("span");
+  body.className = "body";
+  body.textContent = text;
+  line.appendChild(speaker);
+  line.appendChild(body);
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+  return line;
+}
+
+function setLineText(line, text) {
+  if (!line) return;
+  const body = line.querySelector(".body");
+  if (body) body.textContent = text;
+  logEl.scrollTop = logEl.scrollHeight;
+}
 
 // persistent audio plumbing (created once when the call starts)
 let micStream = null;
@@ -176,8 +202,6 @@ const MAX_RECORDING_MS = 20_000; // hard cap per utterance
 
 function startVoiceLoop() {
   setState("listening");
-  transcriptEl.textContent = "";
-  responseEl.textContent = "";
   recordedChunks = [];
 
   const buf = new Uint8Array(analyser.fftSize);
@@ -264,7 +288,6 @@ async function onRecordingStopped() {
     text = "";
   }
 
-  transcriptEl.textContent = text || "(didn't catch that)";
   if (!text || text.length < 2) {
     if (state !== "idle") startVoiceLoop();
     return;
@@ -273,22 +296,30 @@ async function onRecordingStopped() {
   if (overMode) {
     overBuffer.push(text);
     const combined = overBuffer.join(" ");
-    transcriptEl.textContent = combined;
+    if (!pendingUserLine) {
+      pendingUserLine = appendLine("user pending", "you");
+    }
+    setLineText(pendingUserLine, combined);
     if (!OVER_RE.test(text)) {
       if (state !== "idle") startVoiceLoop();
       return;
     }
     const finalText = combined.replace(OVER_RE, "").trim();
     overBuffer = [];
+    const committedLine = pendingUserLine;
+    pendingUserLine = null;
     if (!finalText) {
+      if (committedLine) committedLine.remove();
       if (state !== "idle") startVoiceLoop();
       return;
     }
-    transcriptEl.textContent = finalText;
+    committedLine.classList.remove("pending");
+    setLineText(committedLine, finalText);
     await sendTurn(finalText);
     return;
   }
 
+  appendLine("user", "you", text);
   await sendTurn(text);
 }
 
@@ -298,6 +329,7 @@ async function sendTurn(userText) {
   setState("thinking");
   currentTurn = new AbortController();
   let assistantText = "";
+  currentAssistantLine = appendLine("assistant", "claude", "…");
 
   try {
     const res = await fetch("/api/turn", {
@@ -324,10 +356,10 @@ async function sendTurn(userText) {
         try { evt = JSON.parse(line); } catch { continue; }
         if (evt.type === "text") {
           assistantText += evt.value;
-          responseEl.textContent = assistantText;
+          setLineText(currentAssistantLine, assistantText);
         } else if (evt.type === "final" && !assistantText) {
           assistantText = evt.value;
-          responseEl.textContent = assistantText;
+          setLineText(currentAssistantLine, assistantText);
         } else if (evt.type === "error") {
           throw new Error(evt.message);
         }
@@ -336,7 +368,9 @@ async function sendTurn(userText) {
   } catch (err) {
     console.error(err);
     assistantText = "sorry — something went wrong. " + (err.message || "");
+    setLineText(currentAssistantLine, assistantText);
   }
+  currentAssistantLine = null;
 
   if (state === "idle") return;
 
@@ -402,8 +436,9 @@ resetBtn.addEventListener("click", async () => {
   try { await fetch("/api/reset", { method: "POST" }); }
   catch {}
   overBuffer = [];
-  responseEl.textContent = "";
-  transcriptEl.textContent = "";
+  pendingUserLine = null;
+  currentAssistantLine = null;
+  logEl.textContent = "";
   stateEl.textContent = "new conversation — tap start";
 });
 
