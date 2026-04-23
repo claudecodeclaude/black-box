@@ -279,6 +279,12 @@ async function handleSpeak(req, res) {
   catch { return sendJson(res, 400, { error: "invalid JSON" }); }
   const text = (payload.text || "").trim().slice(0, 5000);
   if (!text) return sendJson(res, 400, { error: "no text" });
+  // Allow client to pick a voice per-call. Whitelist to safe characters so
+  // nothing shell-y slips into the `say -v` argument.
+  let voice = SAY_VOICE;
+  if (typeof payload.voice === "string" && /^[A-Za-z0-9 ()_-]{1,40}$/.test(payload.voice)) {
+    voice = payload.voice;
+  }
 
   const id = randomUUID();
   const tmpDir = os.tmpdir();
@@ -290,7 +296,7 @@ async function handleSpeak(req, res) {
 
   try {
     const t0 = Date.now();
-    await execFileAsync(SAY_BIN, ["-v", SAY_VOICE, "-o", aiff, "--", text]);
+    await execFileAsync(SAY_BIN, ["-v", voice, "-o", aiff, "--", text]);
     await execFileAsync(FFMPEG_BIN, [
       "-y", "-i", aiff,
       "-c:a", "aac", "-b:a", "96k",

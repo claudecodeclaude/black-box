@@ -15,7 +15,6 @@ const stateEl = $("state");
 const logEl = $("log");
 const startBtn = $("startBtn");
 const stopBtn = $("stopBtn");
-const resetBtn = $("resetBtn");
 const overModeBtn = $("overModeBtn");
 const muteBtn = $("muteBtn");
 
@@ -41,6 +40,13 @@ let overBuffer = [];
 // i.e. Jason pauses, says "over" on its own, then pauses again. Matching
 // any trailing "over" would false-trigger mid-sentence ("wait for over...").
 const OVER_RE = /^\s*over[\s.!?,]*$/i;
+// Standalone voice commands. Same pause-word-pause rule as "over".
+const MUTE_RE = /^\s*mute[\s.!?,]*$/i;
+const UNMUTE_RE = /^\s*un-?\s*mute[\s.!?,]*$/i;
+const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
+
+// TTS voice — dynamic, client-side preference sent with each /api/speak call.
+let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
 
 // Running chat log elements
 let pendingUserLine = null; // user line being built up during overMode buffering
@@ -67,6 +73,64 @@ function setLineText(line, text) {
   const body = line.querySelector(".body");
   if (body) body.textContent = text;
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function playCommandBeep() {
+  if (!audioCtx) return;
+  try {
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1100, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.18, t0 + 0.01);
+    gain.gain.linearRampToValueAtTime(0, t0 + 0.12);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.13);
+  } catch (e) { console.warn("beep failed", e); }
+}
+
+function doMute() {
+  muted = true;
+  muteBtn.setAttribute("aria-pressed", "true");
+  muteBtn.textContent = "unmute mic";
+  queuedTurns = [];
+  overBuffer = [];
+  if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+  try { currentTurn?.abort(); } catch {}
+  try { audioEl?.pause(); } catch {}
+  setState("muted");
+  playCommandBeep();
+  appendLine("assistant warning", "!", "muted — say unmute to resume");
+  startQueueListening();
+}
+
+function doUnmute() {
+  muted = false;
+  muteBtn.setAttribute("aria-pressed", "false");
+  muteBtn.textContent = "mute mic";
+  playCommandBeep();
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  if (!analyser) {
+    openMic().then((ok) => { if (ok) startVoiceLoop(); });
+    return;
+  }
+  startVoiceLoop();
+}
+
+async function doReset() {
+  try { await fetch("/api/reset", { method: "POST" }); } catch {}
+  overBuffer = [];
+  queuedTurns = [];
+  pendingUserLine = null;
+  currentAssistantLine = null;
+  logEl.textContent = "";
+  appendLine("assistant warning", "!", "started a fresh conversation");
+  playCommandBeep();
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  if (state !== "idle" && !muted && analyser) startVoiceLoop();
 }
 
 function playQueuedBeep() {
@@ -151,7 +215,7 @@ async function speak(text) {
     const res = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, voice: ttsVoice }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
@@ -227,10 +291,13 @@ function closeMic() {
 
 // ---------- VAD + recording ----------
 
-const SILENCE_THRESHOLD = 0.015; // RMS (0-1); adjust for car noise if needed
-const SPEECH_START_FRAMES = 3;   // ~60ms above threshold triggers record
+// Tuned higher than typical to ignore car noise, door clicks, and other
+// transients. Voice sustains energy; clicks don't — SPEECH_START_FRAMES gates
+// on sustained above-threshold audio.
+const SILENCE_THRESHOLD = 0.03;  // RMS (0-1)
+const SPEECH_START_FRAMES = 6;   // ~120ms sustained above threshold
 const SILENCE_HANG_MS = 1200;    // stop after this much continuous silence
-const MIN_RECORDING_MS = 400;    // ignore too-short blips
+const MIN_RECORDING_MS = 600;    // ignore too-short blips (clicks, whooshes)
 const MAX_RECORDING_MS = 20_000; // hard cap per utterance
 
 function startVoiceLoop() {
@@ -310,14 +377,13 @@ async function onRecordingStopped() {
   if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
   const wasQueued = recordingIsQueued;
   recordingIsQueued = false;
-  if (state === "idle" || muted) return;
+  if (state === "idle") return;
   if (!recordedChunks.length) {
-    if (wasQueued) { startQueueListening(); }
-    else { startVoiceLoop(); }
+    resumeVadForContext(wasQueued);
     return;
   }
 
-  if (!wasQueued) setState("transcribing");
+  if (!wasQueued && !muted) setState("transcribing");
   const blob = new Blob(recordedChunks, { type: recordingMime || "audio/webm" });
   recordedChunks = [];
 
@@ -337,10 +403,21 @@ async function onRecordingStopped() {
   }
 
   if (!text || text.length < 2) {
-    if (wasQueued) { startQueueListening(); }
-    else if (state !== "idle" && !muted) { startVoiceLoop(); }
+    resumeVadForContext(wasQueued);
     return;
   }
+
+  // While muted, the only transcript that matters is "unmute".
+  if (muted) {
+    if (UNMUTE_RE.test(text)) { doUnmute(); return; }
+    resumeVadForContext(wasQueued);
+    return;
+  }
+
+  // Global voice commands — take precedence over queueing/over-mode so they
+  // fire immediately even when captured during Claude's turn.
+  if (MUTE_RE.test(text)) { doMute(); return; }
+  if (NEW_CONV_RE.test(text)) { await doReset(); return; }
 
   if (wasQueued) {
     queuedTurns.push(text);
@@ -349,6 +426,12 @@ async function onRecordingStopped() {
   }
 
   await processTranscript(text);
+}
+
+function resumeVadForContext(wasQueued) {
+  if (state === "idle") return;
+  if (muted || wasQueued) { startQueueListening(); return; }
+  startVoiceLoop();
 }
 
 async function processTranscript(text) {
@@ -510,17 +593,6 @@ stopBtn.addEventListener("click", () => {
   releaseWakeLock();
 });
 
-resetBtn.addEventListener("click", async () => {
-  try { await fetch("/api/reset", { method: "POST" }); }
-  catch {}
-  overBuffer = [];
-  queuedTurns = [];
-  pendingUserLine = null;
-  currentAssistantLine = null;
-  logEl.textContent = "";
-  stateEl.textContent = "new conversation — tap start";
-});
-
 overModeBtn.addEventListener("click", () => {
   overMode = !overMode;
   overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
@@ -528,25 +600,10 @@ overModeBtn.addEventListener("click", () => {
   if (!overMode) overBuffer = [];
 });
 
-muteBtn.addEventListener("click", async () => {
+muteBtn.addEventListener("click", () => {
   if (state === "idle" || state === "error") return;
-  if (!muted) {
-    muted = true;
-    muteBtn.setAttribute("aria-pressed", "true");
-    muteBtn.textContent = "unmute mic";
-    queuedTurns = [];
-    try { currentTurn?.abort(); } catch {}
-    try { audioEl?.pause(); } catch {}
-    closeMic();
-    setState("muted");
-  } else {
-    muted = false;
-    muteBtn.setAttribute("aria-pressed", "false");
-    muteBtn.textContent = "mute mic";
-    const ok = await openMic();
-    if (!ok) return;
-    startVoiceLoop();
-  }
+  if (!muted) doMute();
+  else doUnmute();
 });
 
 overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
