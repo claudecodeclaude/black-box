@@ -59,6 +59,13 @@ const home: HomeItem[] = [
       },
       {
         kind: "tile",
+        href: "https://jasons-mac-mini-1.taile58089.ts.net:7684/",
+        name: "Claude Code (YOLO)",
+        description: "Same terminal, but launches claude with --dangerously-skip-permissions.",
+        external: true,
+      },
+      {
+        kind: "tile",
         href: "https://jasons-mac-mini-1.taile58089.ts.net:7683/",
         name: "Call Claude",
         description: "Hands-free voice conversation with Claude Code — speak and listen.",
