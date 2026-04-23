@@ -26,7 +26,10 @@ let wakeLock = null;
 // says "over", then send the whole thing as one turn.
 let overMode = false;
 let overBuffer = [];
-const OVER_RE = /\s*\bover\b[\s.!?,]*$/i;
+// Trigger only when the chunk is the standalone word "over" (±punctuation),
+// i.e. Jason pauses, says "over" on its own, then pauses again. Matching
+// any trailing "over" would false-trigger mid-sentence ("wait for over...").
+const OVER_RE = /^\s*over[\s.!?,]*$/i;
 
 // Running chat log elements
 let pendingUserLine = null; // user line being built up during overMode buffering
@@ -294,17 +297,18 @@ async function onRecordingStopped() {
   }
 
   if (overMode) {
-    overBuffer.push(text);
-    const combined = overBuffer.join(" ");
-    if (!pendingUserLine) {
-      pendingUserLine = appendLine("user pending", "you");
-    }
-    setLineText(pendingUserLine, combined);
     if (!OVER_RE.test(text)) {
+      overBuffer.push(text);
+      const combined = overBuffer.join(" ");
+      if (!pendingUserLine) {
+        pendingUserLine = appendLine("user pending", "you");
+      }
+      setLineText(pendingUserLine, combined);
       if (state !== "idle") startVoiceLoop();
       return;
     }
-    const finalText = combined.replace(OVER_RE, "").trim();
+    // Standalone "over" → commit buffer and send.
+    const finalText = overBuffer.join(" ").trim();
     overBuffer = [];
     const committedLine = pendingUserLine;
     pendingUserLine = null;
