@@ -295,10 +295,24 @@ function closeMic() {
 // (which would miss soft speech). This tuning tries to keep sensitivity high
 // for Jason's voice while still rejecting transients.
 const SILENCE_THRESHOLD = 0.018; // RMS (0-1)
-const SPEECH_START_FRAMES = 4;   // ~80ms sustained above threshold
+const SPEECH_START_FRAMES = 2;   // ~40ms sustained above threshold — low so
+                                 // the first word isn't clipped. Short blips
+                                 // still transcribe to junk which the
+                                 // annotation filter below tosses.
 const SILENCE_HANG_MS = 1200;    // stop after this much continuous silence
 const MIN_RECORDING_MS = 500;    // ignore too-short blips
 const MAX_RECORDING_MS = 20_000; // hard cap per utterance
+
+// Whisper tags non-speech audio with annotations like "[BLANK_AUDIO]",
+// "[MUSIC PLAYING]", "(clapping)", "[LAUGHTER]". Strip them so they never
+// count as Jason's speech.
+function cleanTranscript(raw) {
+  if (!raw) return "";
+  return raw
+    .replace(/[\[(][^\])]*[\])]/g, "") // drop [bracketed] and (parenthesized) tokens
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function startVoiceLoop() {
   setState("listening");
@@ -396,7 +410,7 @@ async function onRecordingStopped() {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    text = (json.text || "").trim();
+    text = cleanTranscript(json.text || "");
   } catch (err) {
     console.error("transcribe failed", err);
     text = "";
