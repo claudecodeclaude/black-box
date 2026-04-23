@@ -285,6 +285,11 @@ async function handleSpeak(req, res) {
   if (typeof payload.voice === "string" && /^[A-Za-z0-9 ()_-]{1,40}$/.test(payload.voice)) {
     voice = payload.voice;
   }
+  // Optional speaking rate in words-per-minute. macOS say default is ~175.
+  let rate = null;
+  if (typeof payload.rate === "number" && payload.rate >= 80 && payload.rate <= 300) {
+    rate = Math.round(payload.rate);
+  }
 
   const id = randomUUID();
   const tmpDir = os.tmpdir();
@@ -296,7 +301,10 @@ async function handleSpeak(req, res) {
 
   try {
     const t0 = Date.now();
-    await execFileAsync(SAY_BIN, ["-v", voice, "-o", aiff, "--", text]);
+    const sayArgs = ["-v", voice];
+    if (rate) sayArgs.push("-r", String(rate));
+    sayArgs.push("-o", aiff, "--", text);
+    await execFileAsync(SAY_BIN, sayArgs);
     await execFileAsync(FFMPEG_BIN, [
       "-y", "-i", aiff,
       "-c:a", "aac", "-b:a", "96k",

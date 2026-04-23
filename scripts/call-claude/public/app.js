@@ -46,6 +46,9 @@ const SCRATCH_RE = /^\s*(scratch\s+that|scratch|never\s*mind|cancel(\s+that)?|re
 
 // TTS voice — dynamic, client-side preference sent with each /api/speak call.
 let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
+// Words-per-minute; macOS default is ~175. Nudged down so Jason can follow
+// while driving.
+let ttsRate = Number(localStorage.getItem("callClaudeRate")) || 160;
 
 // Running chat log elements
 let pendingUserLine = null; // user line being built up during overMode buffering
@@ -255,7 +258,7 @@ async function speak(text) {
     const res = await fetch("/api/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: ttsVoice }),
+      body: JSON.stringify({ text, voice: ttsVoice, rate: ttsRate }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const blob = await res.blob();
