@@ -338,7 +338,7 @@ function closeMic() {
 // sustained frames above threshold rather than raising the threshold too high
 // (which would miss soft speech). This tuning tries to keep sensitivity high
 // for Jason's voice while still rejecting transients.
-const SILENCE_THRESHOLD = 0.018; // RMS (0-1)
+const SILENCE_THRESHOLD = 0.012; // RMS (0-1) — more sensitive for soft speech
 const SPEECH_START_FRAMES = 2;   // ~40ms sustained above threshold — low so
                                  // the first word isn't clipped. Short blips
                                  // still transcribe to junk which the
