@@ -27,7 +27,7 @@ function toISODate(d: Date): string {
 }
 
 export function mondayOf(d: Date): Date {
-  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const utc = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const day = utc.getUTCDay();
   const diff = day === 0 ? -6 : 1 - day;
   utc.setUTCDate(utc.getUTCDate() + diff);
