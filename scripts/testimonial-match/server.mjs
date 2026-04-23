@@ -11,9 +11,11 @@
 import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +25,12 @@ const CLAUDE_BIN = process.env.TM_CLAUDE || "/Users/jasonslagel/.local/bin/claud
 const WORK_DIR = process.env.TM_WORKDIR || "/Users/jasonslagel/projects/black-box";
 const CERT_PATH = process.env.TM_CERT;
 const KEY_PATH = process.env.TM_KEY;
+const YTDLP_BIN = process.env.TM_YTDLP || "/Users/jasonslagel/.local/bin/yt-dlp";
+const FFMPEG_BIN = process.env.TM_FFMPEG || "/opt/homebrew/bin/ffmpeg";
+const WHISPER_BIN = process.env.TM_WHISPER || "/opt/homebrew/bin/whisper-cli";
+const WHISPER_MODEL =
+  process.env.TM_WHISPER_MODEL ||
+  "/Users/jasonslagel/.call-claude/models/ggml-small.en.bin";
 
 // Allow the Black Box Vercel deploy + any localhost origin to hit this.
 const ALLOWED_ORIGINS = new Set([
@@ -177,12 +185,104 @@ function handleHealth(_req, res) {
   sendJson(res, 200, { ok: true, host: HOST, port: PORT });
 }
 
+async function handleTranscribeUrl(req, res) {
+  let payload;
+  try {
+    const raw = await readBody(req);
+    payload = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return sendJson(res, 400, { error: `bad json: ${e.message || e}` });
+  }
+  const url = String(payload.url || "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return sendJson(res, 400, { error: "valid http(s) URL required" });
+  }
+  if (!fs.existsSync(YTDLP_BIN)) {
+    return sendJson(res, 500, { error: `yt-dlp missing at ${YTDLP_BIN}` });
+  }
+  if (!fs.existsSync(WHISPER_MODEL)) {
+    return sendJson(res, 500, { error: `whisper model missing at ${WHISPER_MODEL}` });
+  }
+
+  const id = randomUUID();
+  const tmpDir = os.tmpdir();
+  const audioOutTemplate = path.join(tmpDir, `tm-${id}.%(ext)s`);
+  const wavPath = path.join(tmpDir, `tm-${id}.wav`);
+  const txtBase = path.join(tmpDir, `tm-${id}`);
+  const txtPath = `${txtBase}.txt`;
+
+  const cleanup = () => {
+    try {
+      for (const f of fs.readdirSync(tmpDir)) {
+        if (f.startsWith(`tm-${id}`)) {
+          try { fs.unlinkSync(path.join(tmpDir, f)); } catch {}
+        }
+      }
+    } catch {}
+  };
+
+  try {
+    log(`transcribe-url: ${url}`);
+    const t0 = Date.now();
+
+    // yt-dlp: best audio only, output to predictable path
+    const { stdout: ytOut } = await execFileAsync(
+      YTDLP_BIN,
+      [
+        "-f", "bestaudio/best",
+        "--no-playlist",
+        "--no-warnings",
+        "--quiet",
+        "--print", "after_move:filepath",
+        "-o", audioOutTemplate,
+        url,
+      ],
+      { maxBuffer: 10 * 1024 * 1024 }
+    );
+    const downloadedPath = ytOut.trim().split("\n").pop();
+    if (!downloadedPath || !fs.existsSync(downloadedPath)) {
+      throw new Error("yt-dlp produced no file");
+    }
+
+    // ffmpeg: convert to 16 kHz mono WAV for whisper.cpp
+    await execFileAsync(FFMPEG_BIN, [
+      "-y", "-i", downloadedPath,
+      "-ar", "16000", "-ac", "1", "-f", "wav",
+      wavPath,
+    ]);
+
+    // whisper: transcribe to .txt next to base
+    await execFileAsync(WHISPER_BIN, [
+      "-m", WHISPER_MODEL,
+      "-f", wavPath,
+      "-nt",
+      "-otxt", "-of", txtBase,
+      "-l", "en",
+      "--no-prints",
+    ], { maxBuffer: 50 * 1024 * 1024 });
+
+    let text = "";
+    if (fs.existsSync(txtPath)) {
+      text = fs.readFileSync(txtPath, "utf8").trim();
+    }
+    const ms = Date.now() - t0;
+    log(`transcribe-url done in ${ms}ms: ${text.length}ch`);
+    sendJson(res, 200, { text, ms });
+  } catch (e) {
+    log(`transcribe-url error: ${e.message || e}`);
+    sendJson(res, 500, { error: String(e.message || e) });
+  } finally {
+    cleanup();
+  }
+}
+
 const handler = async (req, res) => {
   cors(req, res);
   if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
   try {
     const url = (req.url || "/").split("?")[0];
     if (req.method === "POST" && url === "/api/match") return handleMatch(req, res);
+    if (req.method === "POST" && url === "/api/transcribe-url") return handleTranscribeUrl(req, res);
     if (req.method === "GET"  && url === "/api/health") return handleHealth(req, res);
     sendJson(res, 404, { error: "not found" });
   } catch (e) {

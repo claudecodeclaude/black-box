@@ -5,8 +5,9 @@ import Link from "next/link";
 import { Match, Testimonial, TestimonialsState, EMPTY_STATE } from "./types";
 
 // The matcher runs on the Mac Mini over Tailscale.
-const MATCH_URL =
-  "https://jasons-mac-mini-1.taile58089.ts.net:7685/api/match";
+const TM_BASE = "https://jasons-mac-mini-1.taile58089.ts.net:7685";
+const MATCH_URL = `${TM_BASE}/api/match`;
+const TRANSCRIBE_URL = `${TM_BASE}/api/transcribe-url`;
 
 type MatchResult =
   | { status: "idle" }
@@ -20,6 +21,10 @@ export default function TestimonialsPage() {
 
   const [newText, setNewText] = useState("");
   const [adding, setAdding] = useState(false);
+
+  const [videoUrl, setVideoUrl] = useState("");
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
   const [editingNumber, setEditingNumber] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
@@ -37,6 +42,38 @@ export default function TestimonialsPage() {
   useEffect(() => {
     refresh();
   }, []);
+
+  async function transcribeFromUrl() {
+    if (!videoUrl.trim() || transcribing) return;
+    setTranscribing(true);
+    setTranscribeError(null);
+    try {
+      const res = await fetch(TRANSCRIBE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: videoUrl.trim() }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setTranscribeError(j.error || `HTTP ${res.status}`);
+        return;
+      }
+      const json = (await res.json()) as { text: string };
+      if (!json.text?.trim()) {
+        setTranscribeError("Transcript came back empty — check the URL points to audio/video.");
+        return;
+      }
+      setNewText((prev) => (prev.trim() ? prev + "\n\n" + json.text : json.text));
+      setVideoUrl("");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setTranscribeError(
+        `Can't reach the matcher on your Mac Mini. Make sure the Mac is on and this device is on your tailnet. (${msg})`
+      );
+    } finally {
+      setTranscribing(false);
+    }
+  }
 
   async function addTestimonial() {
     if (!newText.trim() || adding) return;
@@ -270,6 +307,69 @@ export default function TestimonialsPage() {
             marginBottom: 20,
           }}
         >
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              marginBottom: 14,
+              flexWrap: "wrap",
+            }}
+          >
+            <input
+              type="url"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              placeholder="Paste a video URL (YouTube, Drive, etc) to auto-transcribe…"
+              style={{
+                flex: "1 1 260px",
+                background: "#0a0a0a",
+                color: "inherit",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "10px 12px",
+                fontSize: 13,
+                fontFamily: "inherit",
+              }}
+            />
+            <button
+              onClick={transcribeFromUrl}
+              disabled={!videoUrl.trim() || transcribing}
+              style={{
+                background: "var(--accent)",
+                color: "#000",
+                border: "none",
+                borderRadius: 999,
+                padding: "9px 18px",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                opacity: !videoUrl.trim() || transcribing ? 0.5 : 1,
+              }}
+            >
+              {transcribing ? "Transcribing…" : "Transcribe"}
+            </button>
+          </div>
+          {transcribeError && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 10,
+                background: "#2a0e0e",
+                border: "1px solid #ff6b6b",
+                borderRadius: 8,
+                color: "#ff9b9b",
+                fontSize: 12,
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {transcribeError}
+            </div>
+          )}
+          <div
+            style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10, letterSpacing: 0.2 }}
+          >
+            Tip: scan a printed QR with your iPhone camera, copy the URL, and paste it above.
+          </div>
           <textarea
             value={newText}
             onChange={(e) => setNewText(e.target.value)}
