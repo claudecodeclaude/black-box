@@ -119,6 +119,18 @@ export default function TestimonialsPage() {
     }
   }
 
+  async function reorder(n: number, direction: "up" | "down") {
+    const res = await fetch("/api/apex/testimonials/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ number: n, direction }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      setState(json.state);
+    }
+  }
+
   async function runMatch() {
     if (!notes.trim()) return;
     if (state.testimonials.length < 4) {
@@ -442,7 +454,7 @@ export default function TestimonialsPage() {
         )}
 
         <div style={{ display: "grid", gap: 10 }}>
-          {[...state.testimonials].reverse().map((t) => (
+          {[...state.testimonials].sort((a, b) => a.number - b.number).map((t, idx, arr) => (
             <div
               key={t.number}
               style={{
@@ -461,7 +473,25 @@ export default function TestimonialsPage() {
                   gap: 8,
                 }}
               >
-                <strong style={{ color: "var(--accent)" }}>#{t.number}</strong>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <strong style={{ color: "var(--accent)" }}>#{t.number}</strong>
+                  <button
+                    onClick={() => reorder(t.number, "up")}
+                    disabled={idx === 0}
+                    title="Move up (lower number)"
+                    style={arrowBtn(idx === 0)}
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => reorder(t.number, "down")}
+                    disabled={idx === arr.length - 1}
+                    title="Move down (higher number)"
+                    style={arrowBtn(idx === arr.length - 1)}
+                  >
+                    ▼
+                  </button>
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   {editingNumber === t.number ? (
                     <>
@@ -548,5 +578,19 @@ function btnSmall(bg: string, color: string): React.CSSProperties {
     padding: "4px 12px",
     fontSize: 12,
     cursor: "pointer",
+  };
+}
+
+function arrowBtn(disabled: boolean): React.CSSProperties {
+  return {
+    background: "var(--border)",
+    color: "inherit",
+    border: "none",
+    borderRadius: 6,
+    padding: "3px 10px",
+    fontSize: 11,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.3 : 1,
+    lineHeight: 1,
   };
 }
