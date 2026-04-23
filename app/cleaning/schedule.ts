@@ -1,6 +1,6 @@
 import { CATALOG, CatalogItem, Frequency } from "./tasks";
 
-export const ANCHOR_MONDAY_ISO = "2026-04-20";
+export const ANCHOR_MONDAY_ISO = "2026-04-13";
 const MS_PER_DAY = 86_400_000;
 const MS_PER_WEEK = MS_PER_DAY * 7;
 
