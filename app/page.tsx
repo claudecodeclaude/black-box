@@ -52,16 +52,9 @@ const home: HomeItem[] = [
     items: [
       {
         kind: "tile",
-        href: "https://jasons-mac-mini-1.taile58089.ts.net:7681/",
-        name: "Claude Code",
-        description: "Open a terminal into the Mac Mini's Claude Code session over Tailscale.",
-        external: true,
-      },
-      {
-        kind: "tile",
         href: "https://jasons-mac-mini-1.taile58089.ts.net:7684/",
-        name: "Claude Code (YOLO)",
-        description: "Same terminal, but launches claude with --dangerously-skip-permissions.",
+        name: "Claude Code Terminal",
+        description: "Terminal into the Mac Mini's Claude Code session over Tailscale.",
         external: true,
       },
       {
