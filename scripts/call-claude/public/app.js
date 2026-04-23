@@ -40,6 +40,9 @@ const OVER_RE = /^\s*(over|hoover|thor|rover|clover|oever|ova|ower|o-?ver|oh-?ve
 const MUTE_RE = /^\s*(mute|moot|meut|mewt)[\s.!?,]*$/i;
 const UNMUTE_RE = /^\s*(un-?\s*mute|un-?\s*moot|un-?\s*meut)[\s.!?,]*$/i;
 const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
+// Clear the current over-mode buffer without sending — used when Whisper
+// misheard something mid-sentence and Jason wants to restart.
+const SCRATCH_RE = /^\s*(scratch\s+that|scratch|never\s*mind|cancel(\s+that)?|redo|start\s+over)[\s.!?,]*$/i;
 
 // TTS voice — dynamic, client-side preference sent with each /api/speak call.
 let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
@@ -119,6 +122,15 @@ function doUnmute() {
   startVoiceLoop();
 }
 
+function doScratch() {
+  overBuffer = [];
+  if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+  playCommandBeep();
+  appendLine("assistant warning", "!", "scratched — go ahead and restart the sentence");
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  if (state !== "idle" && !muted && analyser) startVoiceLoop();
+}
+
 async function doReset() {
   try { await fetch("/api/reset", { method: "POST" }); } catch {}
   overBuffer = [];
@@ -190,8 +202,37 @@ function releaseWakeLock() {
   try { wakeLock?.release(); } catch {}
   wakeLock = null;
 }
+// iOS Safari suspends getUserMedia streams and fetches when the tab is
+// backgrounded, so the call can't resume cleanly by itself. Stop everything
+// on hide, then drop back to the splash so the return tap counts as a user
+// gesture and iOS is happy to reopen the mic.
+let wasActiveBeforeHide = false;
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state !== "idle") acquireWakeLock();
+  if (document.visibilityState === "hidden") {
+    if (state !== "idle" && state !== "error") {
+      wasActiveBeforeHide = true;
+      try { audioEl?.pause(); } catch {}
+      try { currentTurn?.abort(); } catch {}
+      closeMic();
+      releaseWakeLock();
+      muted = false;
+      muteBtn.setAttribute("aria-pressed", "false");
+      muteBtn.textContent = "mute mic";
+      queuedTurns = [];
+      for (const el of queuedLineEls) el.remove();
+      queuedLineEls = [];
+      if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+      overBuffer = [];
+      setState("idle");
+    }
+  } else if (document.visibilityState === "visible") {
+    if (wasActiveBeforeHide) {
+      wasActiveBeforeHide = false;
+      splashEl.classList.remove("hidden");
+      stateEl.textContent = "tap to resume";
+    }
+    if (state !== "idle") acquireWakeLock();
+  }
 });
 
 // ---------- TTS (server-side via macOS `say`, streamed back as m4a) ----------
@@ -432,6 +473,7 @@ async function onRecordingStopped() {
   // fire immediately even when captured during Claude's turn.
   if (MUTE_RE.test(text)) { doMute(); return; }
   if (NEW_CONV_RE.test(text)) { await doReset(); return; }
+  if (SCRATCH_RE.test(text)) { doScratch(); return; }
 
   if (wasQueued) {
     queuedTurns.push(text);
