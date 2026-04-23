@@ -39,6 +39,10 @@ const WHISPER_MODEL = process.env.CALL_CLAUDE_WHISPER_MODEL || path.join(STATE_D
 const FFMPEG_BIN = process.env.CALL_CLAUDE_FFMPEG || "/opt/homebrew/bin/ffmpeg";
 const SAY_BIN = process.env.CALL_CLAUDE_SAY || "/usr/bin/say";
 const SAY_VOICE = process.env.CALL_CLAUDE_VOICE || "Samantha";
+// Piper (neural TTS). When both binary and model exist, Piper replaces `say`.
+const PIPER_BIN = process.env.CALL_CLAUDE_PIPER || "/Users/jasonslagel/.call-claude/piper-venv/bin/piper";
+const PIPER_MODEL = process.env.CALL_CLAUDE_PIPER_MODEL || "/Users/jasonslagel/.call-claude/piper-voices/en_US-ryan-high.onnx";
+const PIPER_AVAILABLE = fs.existsSync(PIPER_BIN) && fs.existsSync(PIPER_MODEL);
 
 const SYSTEM_PROMPT = `You are Claude speaking with Jason hands-free while he drives.
 Your responses will be read aloud by text-to-speech, so:
@@ -293,25 +297,47 @@ async function handleSpeak(req, res) {
 
   const id = randomUUID();
   const tmpDir = os.tmpdir();
-  const aiff = path.join(tmpDir, `call-claude-tts-${id}.aiff`);
+  const rawPath = path.join(tmpDir, `call-claude-tts-${id}.${PIPER_AVAILABLE ? "wav" : "aiff"}`);
   const m4a = path.join(tmpDir, `call-claude-tts-${id}.m4a`);
   const cleanup = () => {
-    for (const p of [aiff, m4a]) { try { fs.unlinkSync(p); } catch {} }
+    for (const p of [rawPath, m4a]) { try { fs.unlinkSync(p); } catch {} }
   };
 
   try {
     const t0 = Date.now();
-    const sayArgs = ["-v", voice];
-    if (rate) sayArgs.push("-r", String(rate));
-    sayArgs.push("-o", aiff, "--", text);
-    await execFileAsync(SAY_BIN, sayArgs);
+    if (PIPER_AVAILABLE) {
+      // Piper's length_scale controls speed: 1.0 default, higher = slower.
+      // Translate our wpm rate (macOS `say` default ~175) to length_scale.
+      const lengthScale = rate ? Math.max(0.7, Math.min(1.5, 175 / rate)) : 1.0;
+      await new Promise((resolve, reject) => {
+        const proc = spawn(PIPER_BIN, [
+          "--model", PIPER_MODEL,
+          "--output_file", rawPath,
+          "--length-scale", String(lengthScale),
+        ]);
+        let stderr = "";
+        proc.stderr.on("data", (d) => stderr += d.toString());
+        proc.on("error", reject);
+        proc.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`piper exit ${code}: ${stderr.slice(-400)}`));
+        });
+        proc.stdin.write(text);
+        proc.stdin.end();
+      });
+    } else {
+      const sayArgs = ["-v", voice];
+      if (rate) sayArgs.push("-r", String(rate));
+      sayArgs.push("-o", rawPath, "--", text);
+      await execFileAsync(SAY_BIN, sayArgs);
+    }
     await execFileAsync(FFMPEG_BIN, [
-      "-y", "-i", aiff,
+      "-y", "-i", rawPath,
       "-c:a", "aac", "-b:a", "96k",
       m4a,
     ]);
     const audio = fs.readFileSync(m4a);
-    log(`tts ${text.length}ch → ${audio.length}B in ${Date.now() - t0}ms`);
+    log(`tts (${PIPER_AVAILABLE ? "piper" : "say"}) ${text.length}ch → ${audio.length}B in ${Date.now() - t0}ms`);
     res.writeHead(200, {
       "Content-Type": "audio/mp4",
       "Content-Length": audio.length,
