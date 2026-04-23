@@ -1,0 +1,430 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Match, Testimonial, TestimonialsState, EMPTY_STATE } from "./types";
+
+// The matcher runs on the Mac Mini over Tailscale.
+const MATCH_URL =
+  "https://jasons-mac-mini-1.taile58089.ts.net:7685/api/match";
+
+type MatchResult =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "done"; matches: Match[] };
+
+export default function TestimonialsPage() {
+  const [state, setState] = useState<TestimonialsState>(EMPTY_STATE);
+  const [loaded, setLoaded] = useState(false);
+
+  const [newText, setNewText] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const [editingNumber, setEditingNumber] = useState<number | null>(null);
+  const [editText, setEditText] = useState("");
+
+  const [notes, setNotes] = useState("");
+  const [matchResult, setMatchResult] = useState<MatchResult>({ status: "idle" });
+
+  async function refresh() {
+    const res = await fetch("/api/apex/testimonials", { cache: "no-store" });
+    const data = (await res.json()) as TestimonialsState;
+    setState(data);
+    setLoaded(true);
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function addTestimonial() {
+    if (!newText.trim() || adding) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/apex/testimonials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: newText.trim() }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setState(json.state);
+        setNewText("");
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function saveEdit(n: number) {
+    const res = await fetch(`/api/apex/testimonials/${n}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: editText.trim() }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      setState(json.state);
+      setEditingNumber(null);
+      setEditText("");
+    }
+  }
+
+  async function deleteTestimonial(n: number) {
+    if (!confirm(`Delete testimonial #${n}?`)) return;
+    const res = await fetch(`/api/apex/testimonials/${n}`, { method: "DELETE" });
+    if (res.ok) {
+      const json = await res.json();
+      setState(json.state);
+    }
+  }
+
+  async function runMatch() {
+    if (!notes.trim()) return;
+    if (state.testimonials.length < 4) {
+      setMatchResult({
+        status: "error",
+        message: `You have ${state.testimonials.length} testimonials — add at least 4 before matching.`,
+      });
+      return;
+    }
+    setMatchResult({ status: "loading" });
+    try {
+      const res = await fetch(MATCH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          notes: notes.trim(),
+          testimonials: state.testimonials.map((t) => ({
+            number: t.number,
+            text: t.text,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const msg = await res.text().catch(() => `HTTP ${res.status}`);
+        setMatchResult({ status: "error", message: msg || `HTTP ${res.status}` });
+        return;
+      }
+      const json = (await res.json()) as { matches: Match[] };
+      setMatchResult({ status: "done", matches: json.matches });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setMatchResult({
+        status: "error",
+        message: `Can't reach the matcher on your Mac Mini. Make sure the Mac is on and this device is on your tailnet. (${msg})`,
+      });
+    }
+  }
+
+  return (
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 20px 80px" }}>
+      <div style={{ marginBottom: 20 }}>
+        <Link
+          href="/"
+          style={{ color: "var(--muted)", fontSize: 14, textDecoration: "none" }}
+        >
+          ← Black Box
+        </Link>
+      </div>
+
+      <h1 style={{ fontSize: 28, marginBottom: 6 }}>Testimonial Matcher</h1>
+      <p style={{ color: "var(--muted)", marginTop: 0, marginBottom: 28, fontSize: 14 }}>
+        Paste a new patient&apos;s phone consult notes and get the 4 testimonials that
+        will resonate most. Matcher runs on your Mac Mini over Tailscale.
+      </p>
+
+      {/* Match section */}
+      <section
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          padding: 20,
+          marginBottom: 32,
+        }}
+      >
+        <h2 style={{ marginTop: 0, fontSize: 18, marginBottom: 10 }}>Match</h2>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Paste the phone consult notes for the new patient…"
+          rows={8}
+          style={{
+            width: "100%",
+            background: "#0a0a0a",
+            color: "inherit",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: 12,
+            fontSize: 14,
+            fontFamily: "inherit",
+            resize: "vertical",
+          }}
+        />
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12 }}>
+          <button
+            onClick={runMatch}
+            disabled={!notes.trim() || matchResult.status === "loading"}
+            style={{
+              background: "var(--accent)",
+              color: "#000",
+              border: "none",
+              borderRadius: 999,
+              padding: "10px 20px",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              opacity: !notes.trim() || matchResult.status === "loading" ? 0.5 : 1,
+            }}
+          >
+            {matchResult.status === "loading" ? "Matching…" : "Match top 4"}
+          </button>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>
+            {state.testimonials.length} testimonial{state.testimonials.length === 1 ? "" : "s"} loaded
+          </span>
+        </div>
+
+        {matchResult.status === "error" && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: 12,
+              background: "#2a0e0e",
+              border: "1px solid #ff6b6b",
+              borderRadius: 8,
+              color: "#ff9b9b",
+              fontSize: 13,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {matchResult.message}
+          </div>
+        )}
+
+        {matchResult.status === "done" && (
+          <div style={{ marginTop: 18, display: "grid", gap: 10 }}>
+            {matchResult.matches.map((m) => {
+              const full = state.testimonials.find((t) => t.number === m.number);
+              return (
+                <div
+                  key={m.number}
+                  style={{
+                    background: "#0a1a24",
+                    border: "1px solid #1a3a54",
+                    borderRadius: 10,
+                    padding: "14px 16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 12,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 32,
+                        fontWeight: 800,
+                        color: "var(--accent)",
+                        minWidth: 60,
+                      }}
+                    >
+                      #{m.number}
+                    </div>
+                    <div style={{ fontSize: 14, color: "#e5f3fa" }}>{m.reason}</div>
+                  </div>
+                  {full && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        marginTop: 6,
+                        whiteSpace: "pre-wrap",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {full.text.length > 220 ? full.text.slice(0, 220) + "…" : full.text}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Admin: add + list */}
+      <section>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Testimonials</h2>
+
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 20,
+          }}
+        >
+          <textarea
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            placeholder="Paste a testimonial (video transcript, Google review, etc)…"
+            rows={5}
+            style={{
+              width: "100%",
+              background: "#0a0a0a",
+              color: "inherit",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: 12,
+              fontSize: 14,
+              fontFamily: "inherit",
+              resize: "vertical",
+            }}
+          />
+          <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
+            <button
+              onClick={addTestimonial}
+              disabled={!newText.trim() || adding}
+              style={{
+                background: "var(--accent-warm, #ff9a4d)",
+                color: "#000",
+                border: "none",
+                borderRadius: 999,
+                padding: "9px 18px",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: "pointer",
+                opacity: !newText.trim() || adding ? 0.5 : 1,
+              }}
+            >
+              {adding ? "Adding…" : `Add as #${state.nextNumber}`}
+            </button>
+            <span style={{ color: "var(--muted)", fontSize: 12 }}>
+              Numbers are assigned automatically and never reused.
+            </span>
+          </div>
+        </div>
+
+        {!loaded && <div style={{ color: "var(--muted)" }}>Loading…</div>}
+
+        {loaded && state.testimonials.length === 0 && (
+          <div style={{ color: "var(--muted)", fontSize: 14 }}>
+            No testimonials yet. Add your first one above.
+          </div>
+        )}
+
+        <div style={{ display: "grid", gap: 10 }}>
+          {[...state.testimonials].reverse().map((t) => (
+            <div
+              key={t.number}
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                padding: 14,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 8,
+                  gap: 8,
+                }}
+              >
+                <strong style={{ color: "var(--accent)" }}>#{t.number}</strong>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {editingNumber === t.number ? (
+                    <>
+                      <button
+                        onClick={() => saveEdit(t.number)}
+                        style={btnSmall("#4dff88", "#001a0a")}
+                      >
+                        save
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingNumber(null);
+                          setEditText("");
+                        }}
+                        style={btnSmall("var(--border)", "inherit")}
+                      >
+                        cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setEditingNumber(t.number);
+                          setEditText(t.text);
+                        }}
+                        style={btnSmall("var(--border)", "inherit")}
+                      >
+                        edit
+                      </button>
+                      <button
+                        onClick={() => deleteTestimonial(t.number)}
+                        style={btnSmall("#2a0e0e", "#ff8a8a")}
+                      >
+                        delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              {editingNumber === t.number ? (
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  rows={5}
+                  style={{
+                    width: "100%",
+                    background: "#0a0a0a",
+                    color: "inherit",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: 10,
+                    fontSize: 14,
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    fontSize: 14,
+                    whiteSpace: "pre-wrap",
+                    lineHeight: 1.45,
+                    color: "#e5e5e5",
+                  }}
+                >
+                  {t.text}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function btnSmall(bg: string, color: string): React.CSSProperties {
+  return {
+    background: bg,
+    color,
+    border: "1px solid var(--border)",
+    borderRadius: 999,
+    padding: "4px 12px",
+    fontSize: 12,
+    cursor: "pointer",
+  };
+}

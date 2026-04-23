@@ -84,6 +84,12 @@ const home: HomeItem[] = [
         name: "QR Generator",
         description: "Create QR codes from any text or URL, with optional logo overlay.",
       },
+      {
+        kind: "tile",
+        href: "/apex/testimonials",
+        name: "Testimonial Matcher",
+        description: "Paste a new patient's consult notes and get the 4 testimonials that match — runs on your Mac Mini over Tailscale.",
+      },
     ],
   },
 ];
