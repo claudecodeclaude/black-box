@@ -104,8 +104,8 @@ function doMute() {
   for (const el of queuedLineEls) el.remove();
   queuedLineEls = [];
   if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
-  try { currentTurn?.abort(); } catch {}
-  try { audioEl?.pause(); } catch {}
+  // Leave currentTurn + audioEl alone — muting your mic shouldn't cut off
+  // Claude's response. It just stops sending what you say next.
   setState("muted");
   playCommandBeep();
   appendLine("assistant warning", "!", "muted — say unmute to resume");
@@ -636,9 +636,14 @@ async function sendTurn(userText) {
 
   currentAssistantLine = null;
 
-  if (state === "idle" || muted) return;
+  if (state === "idle") return;
   const reopened = await openMic();
   if (!reopened) return;
+  if (muted) {
+    setState("muted");
+    startQueueListening();
+    return;
+  }
   startVoiceLoop();
 
   // Drain anything the user said while we were busy. The recursive sendTurn
