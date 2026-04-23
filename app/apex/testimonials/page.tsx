@@ -32,6 +32,8 @@ export default function TestimonialsPage() {
   const [notes, setNotes] = useState("");
   const [matchResult, setMatchResult] = useState<MatchResult>({ status: "idle" });
 
+  const [dbOpen, setDbOpen] = useState(false);
+
   async function refresh() {
     const res = await fetch("/api/apex/testimonials", { cache: "no-store" });
     const data = (await res.json()) as TestimonialsState;
@@ -294,8 +296,28 @@ export default function TestimonialsPage() {
         )}
       </section>
 
-      {/* Admin: add + list */}
-      <section>
+      {/* Database toggle button */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 8, marginBottom: dbOpen ? 24 : 0 }}>
+        <button
+          onClick={() => setDbOpen((v) => !v)}
+          style={{
+            background: dbOpen ? "var(--accent-warm, #ff9a4d)" : "var(--surface)",
+            color: dbOpen ? "#000" : "inherit",
+            border: "1px solid var(--border)",
+            borderRadius: 999,
+            padding: "12px 28px",
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: "pointer",
+            letterSpacing: 1,
+          }}
+        >
+          {dbOpen ? "▴ Close database" : `▾ Testimonial database (${state.testimonials.length})`}
+        </button>
+      </div>
+
+      {/* Admin: add + list (collapsible) */}
+      <section style={{ display: dbOpen ? "block" : "none" }}>
         <h2 style={{ fontSize: 18, marginBottom: 12 }}>Testimonials</h2>
 
         <div
