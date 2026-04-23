@@ -1,11 +1,26 @@
-import { kv } from "@vercel/kv";
+import { createClient, VercelKV } from "@vercel/kv";
 import { promises as fs } from "fs";
 import path from "path";
 import { EMPTY_GLOBAL, EMPTY_WEEK, GlobalState, WeekState } from "./state";
 
-const isKVConfigured = Boolean(
-  process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN
-);
+const KV_URL =
+  process.env.KV_REST_API_URL ||
+  process.env.UPSTASH_REDIS_REST_URL ||
+  "";
+const KV_TOKEN =
+  process.env.KV_REST_API_TOKEN ||
+  process.env.UPSTASH_REDIS_REST_TOKEN ||
+  "";
+
+const isKVConfigured = Boolean(KV_URL && KV_TOKEN);
+
+let kvClient: VercelKV | null = null;
+function getKV(): VercelKV {
+  if (!kvClient) {
+    kvClient = createClient({ url: KV_URL, token: KV_TOKEN });
+  }
+  return kvClient;
+}
 
 const FALLBACK_FILE = path.join(process.cwd(), "data", "cleaning-state.json");
 
@@ -33,7 +48,7 @@ const weekKey = (mondayISO: string) => `cleaning:week:${mondayISO}`;
 
 export async function getGlobal(): Promise<GlobalState> {
   if (isKVConfigured) {
-    const v = await kv.get<GlobalState>(GLOBAL_KEY);
+    const v = await getKV().get<GlobalState>(GLOBAL_KEY);
     return v ?? EMPTY_GLOBAL;
   }
   const data = await readFallback();
@@ -42,7 +57,7 @@ export async function getGlobal(): Promise<GlobalState> {
 
 export async function setGlobal(g: GlobalState): Promise<void> {
   if (isKVConfigured) {
-    await kv.set(GLOBAL_KEY, g);
+    await getKV().set(GLOBAL_KEY, g);
     return;
   }
   const data = await readFallback();
@@ -52,7 +67,7 @@ export async function setGlobal(g: GlobalState): Promise<void> {
 
 export async function getWeek(mondayISO: string): Promise<WeekState> {
   if (isKVConfigured) {
-    const v = await kv.get<WeekState>(weekKey(mondayISO));
+    const v = await getKV().get<WeekState>(weekKey(mondayISO));
     return v ?? EMPTY_WEEK;
   }
   const data = await readFallback();
@@ -61,7 +76,7 @@ export async function getWeek(mondayISO: string): Promise<WeekState> {
 
 export async function setWeek(mondayISO: string, w: WeekState): Promise<void> {
   if (isKVConfigured) {
-    await kv.set(weekKey(mondayISO), w);
+    await getKV().set(weekKey(mondayISO), w);
     return;
   }
   const data = await readFallback();
