@@ -37,8 +37,8 @@ let overBuffer = [];
 const OVER_RE = /^\s*(over|hoover|thor|rover|clover|oever|ova|ower|o-?ver|oh-?ver|overr|oeuvre)[\s.!?,]*$/i;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
-const MUTE_RE = /^\s*(mute|moot|meut|mewt)[\s.!?,]*$/i;
-const UNMUTE_RE = /^\s*(un-?\s*mute|un-?\s*moot|un-?\s*meut)[\s.!?,]*$/i;
+const MUTE_RE = /^\s*(mute|moot|meut|mewt)(\s+mic)?[\s.!?,]*$/i;
+const UNMUTE_RE = /^\s*(un-?\s*(mute|moot|meut))(\s+mic)?[\s.!?,]*$/i;
 const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 // Clear the current over-mode buffer without sending — used when Whisper
 // misheard something mid-sentence and Jason wants to restart.
