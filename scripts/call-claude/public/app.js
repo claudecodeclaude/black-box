@@ -525,11 +525,57 @@ async function processTranscript(text) {
 
 // ---------- Claude turn ----------
 
+function cleanForTTS(s) {
+  return s
+    .replace(/```[\s\S]*?```/g, " code block ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/[*_#>]/g, "")
+    .trim();
+}
+
 async function sendTurn(userText) {
   setState("thinking");
   startQueueListening();
   currentTurn = new AbortController();
   let assistantText = "";
+  let lastSpokenIdx = 0;
+  let micClosedForSpeech = false;
+  const ttsQueue = [];
+  let ttsRunner = null;
+
+  const runTTSQueue = async () => {
+    while (ttsQueue.length) {
+      const chunk = ttsQueue.shift();
+      try { await speak(chunk); } catch (e) { console.warn("speak failed", e); }
+    }
+    ttsRunner = null;
+  };
+
+  const ensureMicClosedForSpeech = () => {
+    if (micClosedForSpeech) return;
+    micClosedForSpeech = true;
+    if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+    closeMic();
+    setState("speaking");
+  };
+
+  // Enqueue any completed sentences from the accumulating assistantText.
+  // A "complete sentence" ends in . ! or ? followed by whitespace or EOT.
+  const flushCompletedSentences = () => {
+    while (true) {
+      const remaining = assistantText.slice(lastSpokenIdx);
+      const m = remaining.match(/^([\s\S]*?[.!?])(\s|$)/);
+      if (!m) return;
+      const raw = m[1];
+      lastSpokenIdx += raw.length;
+      const spoken = cleanForTTS(raw);
+      if (!spoken) continue;
+      ensureMicClosedForSpeech();
+      ttsQueue.push(spoken);
+      if (!ttsRunner) ttsRunner = runTTSQueue();
+    }
+  };
+
   currentAssistantLine = appendLine("assistant", "claude", "…");
 
   try {
@@ -558,9 +604,11 @@ async function sendTurn(userText) {
         if (evt.type === "text") {
           assistantText += evt.value;
           setLineText(currentAssistantLine, assistantText);
+          flushCompletedSentences();
         } else if (evt.type === "final" && !assistantText) {
           assistantText = evt.value;
           setLineText(currentAssistantLine, assistantText);
+          flushCompletedSentences();
         } else if (evt.type === "error") {
           throw new Error(evt.message);
         }
@@ -568,25 +616,22 @@ async function sendTurn(userText) {
     }
   } catch (err) {
     console.error(err);
-    assistantText = "sorry — something went wrong. " + (err.message || "");
+    assistantText += (assistantText ? " " : "") + "sorry — something went wrong. " + (err.message || "");
     setLineText(currentAssistantLine, assistantText);
   }
+
+  // Speak any trailing text that didn't end with sentence punctuation
+  const tail = assistantText.slice(lastSpokenIdx);
+  const tailSpoken = cleanForTTS(tail);
+  if (tailSpoken) {
+    ensureMicClosedForSpeech();
+    ttsQueue.push(tailSpoken);
+    if (!ttsRunner) ttsRunner = runTTSQueue();
+  }
+
+  if (ttsRunner) await ttsRunner;
+
   currentAssistantLine = null;
-
-  if (state === "idle") return;
-
-  setState("speaking");
-  const spoken = assistantText
-    .replace(/```[\s\S]*?```/g, " code block ")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/[*_#>]/g, "")
-    .trim();
-
-  // iOS Safari routes audio to the earpiece (and at very low volume) whenever
-  // a mic stream is live via getUserMedia. Fully release the mic so the audio
-  // session returns to playback mode, speak, then reopen the mic.
-  closeMic();
-  await speak(spoken);
 
   if (state === "idle" || muted) return;
   const reopened = await openMic();
