@@ -13,9 +13,8 @@
 const $ = (id) => document.getElementById(id);
 const stateEl = $("state");
 const logEl = $("log");
-const startBtn = $("startBtn");
+const splashEl = $("splash");
 const stopBtn = $("stopBtn");
-const overModeBtn = $("overModeBtn");
 const muteBtn = $("muteBtn");
 
 let state = "idle";
@@ -28,21 +27,18 @@ let muted = false; // mic paused — call stays alive, nothing is transcribed
 let queuedTurns = [];
 let recordingIsQueued = false;
 
-// "over" mode: buffer transcripts across silence breaks until the user
-// says "over", then send the whole thing as one turn. Defaults on;
-// preference is remembered across page reloads.
-let overMode = (() => {
-  const stored = localStorage.getItem("callClaudeOverMode");
-  return stored === null ? true : stored === "true";
-})();
+// "over" mode: always on. Buffers transcripts across silence breaks until
+// Jason says "over" alone, then sends the whole thing as one turn.
+const overMode = true;
 let overBuffer = [];
-// Trigger only when the chunk is the standalone word "over" (±punctuation),
-// i.e. Jason pauses, says "over" on its own, then pauses again. Matching
-// any trailing "over" would false-trigger mid-sentence ("wait for over...").
-const OVER_RE = /^\s*over[\s.!?,]*$/i;
-// Standalone voice commands. Same pause-word-pause rule as "over".
-const MUTE_RE = /^\s*mute[\s.!?,]*$/i;
-const UNMUTE_RE = /^\s*un-?\s*mute[\s.!?,]*$/i;
+// Trigger on the standalone word "over" plus common Whisper mishears for
+// short clipped audio (hoover, thor, rover, etc). Case-insensitive, optional
+// trailing punctuation. Must be the entire chunk, not mid-sentence.
+const OVER_RE = /^\s*(over|hoover|thor|rover|clover|oever|ova|ower|o-?ver|oh-?ver|overr|oeuvre)[\s.!?,]*$/i;
+// Standalone voice commands. Same pause-word-pause rule as "over", with
+// common Whisper mishears accepted.
+const MUTE_RE = /^\s*(mute|moot|meut|mewt)[\s.!?,]*$/i;
+const UNMUTE_RE = /^\s*(un-?\s*mute|un-?\s*moot|un-?\s*meut)[\s.!?,]*$/i;
 const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 
 // TTS voice — dynamic, client-side preference sent with each /api/speak call.
@@ -173,7 +169,6 @@ function setState(next) {
     error: "error — tap to retry",
   };
   stateEl.textContent = next === "muted" ? "muted — tap unmute" : (labels[next] || next);
-  startBtn.disabled = next !== "idle" && next !== "error";
   stopBtn.disabled = next === "idle" || next === "error";
   muteBtn.disabled = next === "idle" || next === "error";
 }
@@ -556,7 +551,7 @@ async function sendTurn(userText) {
 const SILENT_WAV =
   "data:audio/wav;base64,UklGRhwAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
 
-startBtn.addEventListener("click", (ev) => {
+splashEl.addEventListener("click", (ev) => {
   ev.preventDefault();
   // === SYNCHRONOUS portion of the user gesture ===
   // Must happen before any await so iOS considers the audio element "unlocked".
@@ -564,9 +559,9 @@ startBtn.addEventListener("click", (ev) => {
   el.src = SILENT_WAV;
   el.play().catch(() => {});
 
+  splashEl.classList.add("hidden");
   stateEl.textContent = "requesting mic...";
 
-  // Now kick off the async work
   (async () => {
     try {
       const ok = await openMic();
@@ -591,13 +586,7 @@ stopBtn.addEventListener("click", () => {
   try { currentTurn?.abort(); } catch {}
   closeMic();
   releaseWakeLock();
-});
-
-overModeBtn.addEventListener("click", () => {
-  overMode = !overMode;
-  overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
-  localStorage.setItem("callClaudeOverMode", String(overMode));
-  if (!overMode) overBuffer = [];
+  splashEl.classList.remove("hidden");
 });
 
 muteBtn.addEventListener("click", () => {
@@ -606,5 +595,4 @@ muteBtn.addEventListener("click", () => {
   else doUnmute();
 });
 
-overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
 setState("idle");

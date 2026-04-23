@@ -9,6 +9,10 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
+    <div id="splash" class="splash" role="button" aria-label="tap to start">
+      <div class="splash-big">START</div>
+      <div class="splash-hint">tap anywhere</div>
+    </div>
     <main id="app">
       <div id="orb" aria-hidden="true"></div>
 
@@ -17,10 +21,8 @@
       <div id="log" class="log" aria-live="polite"></div>
 
       <div class="controls">
-        <button id="startBtn" class="btn primary">start</button>
         <button id="muteBtn" class="btn toggle" aria-pressed="false" disabled>mute mic</button>
         <button id="stopBtn" class="btn" disabled>stop</button>
-        <button id="overModeBtn" class="btn toggle" aria-pressed="false">wait for "over"</button>
       </div>
     </main>
     <script src="/app.js"></script>

@@ -154,3 +154,38 @@ body.state-muted #orb {
   color: #000;
   border-color: var(--accent-warm);
 }
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, var(--accent), #0a2a3a 80%);
+  cursor: pointer;
+  padding: 24px;
+  -webkit-tap-highlight-color: rgba(0,0,0,0.1);
+  user-select: none;
+  transition: opacity 220ms ease;
+}
+.splash.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.splash-big {
+  font-size: 88px;
+  font-weight: 900;
+  letter-spacing: 14px;
+  color: #001018;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+.splash-hint {
+  font-size: 13px;
+  color: #001018;
+  opacity: 0.7;
+  margin-top: 18px;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+}
