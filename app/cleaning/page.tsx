@@ -297,6 +297,9 @@ export default function CleaningPage() {
           WEEK {viewWk.cycleWeek} OF 5
         </div>
         <div className="gb-week-chip">{whose.toUpperCase()}&apos;S WEEK</div>
+        <div style={{ fontSize: 7, color: "#999", marginTop: 8, letterSpacing: 1 }}>
+          build v3 · today {now.toISOString().slice(0, 10)} · mon {currentISO}
+        </div>
       </div>
 
       {CATEGORIES.map((cat) => (
