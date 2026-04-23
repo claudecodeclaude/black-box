@@ -23,6 +23,8 @@ let state = "idle";
 let currentTurn = null; // AbortController for /api/turn
 let wakeLock = null;
 let muted = false; // mic paused — call stays alive, nothing is transcribed
+let missedSpeech = false; // set if user talks while we can't process
+let missedFrames = 0;
 
 // "over" mode: buffer transcripts across silence breaks until the user
 // says "over", then send the whole thing as one turn. Defaults on;
@@ -62,6 +64,24 @@ function setLineText(line, text) {
   const body = line.querySelector(".body");
   if (body) body.textContent = text;
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+function playMissedBeep() {
+  if (!audioCtx) return;
+  try {
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, t0);
+    osc.frequency.setValueAtTime(660, t0 + 0.12);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.25, t0 + 0.02);
+    gain.gain.linearRampToValueAtTime(0, t0 + 0.28);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.3);
+  } catch (e) { console.warn("beep failed", e); }
 }
 
 // persistent audio plumbing (created once when the call starts)
@@ -227,15 +247,28 @@ function startVoiceLoop() {
   };
 
   vadTimer = setInterval(() => {
-    if (state !== "listening" && state !== "recording") return;
+    if (!analyser) return;
     analyser.getByteTimeDomainData(buf);
-    // RMS over [-1, 1] signal derived from 8-bit PCM centered at 128
     let sumSq = 0;
     for (let i = 0; i < buf.length; i++) {
       const v = (buf[i] - 128) / 128;
       sumSq += v * v;
     }
     const rms = Math.sqrt(sumSq / buf.length);
+
+    // Mic is open but we can't process input right now (thinking/transcribing).
+    // Flag that the user tried to talk so we can alert them when listening resumes.
+    if (state !== "listening" && state !== "recording") {
+      if (rms > SILENCE_THRESHOLD) {
+        missedFrames++;
+        if (missedFrames >= SPEECH_START_FRAMES) missedSpeech = true;
+      } else {
+        missedFrames = 0;
+      }
+      return;
+    }
+    missedFrames = 0;
+
     const now = Date.now();
 
     if (!recording) {
@@ -338,6 +371,8 @@ async function onRecordingStopped() {
 
 async function sendTurn(userText) {
   setState("thinking");
+  missedSpeech = false;
+  missedFrames = 0;
   currentTurn = new AbortController();
   let assistantText = "";
   currentAssistantLine = appendLine("assistant", "claude", "…");
@@ -402,6 +437,12 @@ async function sendTurn(userText) {
   const reopened = await openMic();
   if (!reopened) return;
   startVoiceLoop();
+  if (missedSpeech) {
+    missedSpeech = false;
+    missedFrames = 0;
+    playMissedBeep();
+    appendLine("assistant warning", "!", "missed what you said while i was busy — try again");
+  }
 }
 
 // ---------- controls ----------
