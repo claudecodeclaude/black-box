@@ -23,8 +23,11 @@ let state = "idle";
 let currentTurn = null; // AbortController for /api/turn
 let wakeLock = null;
 let muted = false; // mic paused — call stays alive, nothing is transcribed
-let missedSpeech = false; // set if user talks while we can't process
-let missedFrames = 0;
+
+// Queue of transcripts captured while Claude was busy (thinking/transcribing).
+// Drained once the turn completes and listening resumes.
+let queuedTurns = [];
+let recordingIsQueued = false;
 
 // "over" mode: buffer transcripts across silence breaks until the user
 // says "over", then send the whole thing as one turn. Defaults on;
@@ -66,21 +69,21 @@ function setLineText(line, text) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function playMissedBeep() {
+function playQueuedBeep() {
   if (!audioCtx) return;
   try {
     const t0 = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(880, t0);
-    osc.frequency.setValueAtTime(660, t0 + 0.12);
+    osc.frequency.setValueAtTime(660, t0);
+    osc.frequency.setValueAtTime(880, t0 + 0.1);
     gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(0.25, t0 + 0.02);
-    gain.gain.linearRampToValueAtTime(0, t0 + 0.28);
+    gain.gain.linearRampToValueAtTime(0.2, t0 + 0.02);
+    gain.gain.linearRampToValueAtTime(0, t0 + 0.24);
     osc.connect(gain).connect(audioCtx.destination);
     osc.start(t0);
-    osc.stop(t0 + 0.3);
+    osc.stop(t0 + 0.25);
   } catch (e) { console.warn("beep failed", e); }
 }
 
@@ -232,8 +235,18 @@ const MAX_RECORDING_MS = 20_000; // hard cap per utterance
 
 function startVoiceLoop() {
   setState("listening");
-  recordedChunks = [];
+  setupVAD({ queued: false });
+}
 
+// Runs VAD silently during thinking/transcribing states so speech captured
+// there becomes queued turns rather than being dropped.
+function startQueueListening() {
+  if (!analyser || vadTimer) return;
+  setupVAD({ queued: true });
+}
+
+function setupVAD({ queued }) {
+  recordedChunks = [];
   const buf = new Uint8Array(analyser.fftSize);
   let aboveCount = 0;
   let lastSoundAt = 0;
@@ -255,20 +268,6 @@ function startVoiceLoop() {
       sumSq += v * v;
     }
     const rms = Math.sqrt(sumSq / buf.length);
-
-    // Mic is open but we can't process input right now (thinking/transcribing).
-    // Flag that the user tried to talk so we can alert them when listening resumes.
-    if (state !== "listening" && state !== "recording") {
-      if (rms > SILENCE_THRESHOLD) {
-        missedFrames++;
-        if (missedFrames >= SPEECH_START_FRAMES) missedSpeech = true;
-      } else {
-        missedFrames = 0;
-      }
-      return;
-    }
-    missedFrames = 0;
-
     const now = Date.now();
 
     if (!recording) {
@@ -276,7 +275,8 @@ function startVoiceLoop() {
         aboveCount++;
         if (aboveCount >= SPEECH_START_FRAMES) {
           recording = true;
-          setState("recording");
+          recordingIsQueued = queued;
+          if (!queued) setState("recording");
           recordingStartedAt = now;
           lastSoundAt = now;
           recordedChunks = [];
@@ -296,7 +296,6 @@ function startVoiceLoop() {
       return;
     }
 
-    // currently recording
     if (rms > SILENCE_THRESHOLD) lastSoundAt = now;
 
     const elapsed = now - recordingStartedAt;
@@ -309,10 +308,16 @@ function startVoiceLoop() {
 
 async function onRecordingStopped() {
   if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
-  if (state === "idle") return;
-  if (!recordedChunks.length) { startVoiceLoop(); return; }
+  const wasQueued = recordingIsQueued;
+  recordingIsQueued = false;
+  if (state === "idle" || muted) return;
+  if (!recordedChunks.length) {
+    if (wasQueued) { startQueueListening(); }
+    else { startVoiceLoop(); }
+    return;
+  }
 
-  setState("transcribing");
+  if (!wasQueued) setState("transcribing");
   const blob = new Blob(recordedChunks, { type: recordingMime || "audio/webm" });
   recordedChunks = [];
 
@@ -332,10 +337,21 @@ async function onRecordingStopped() {
   }
 
   if (!text || text.length < 2) {
-    if (state !== "idle" && !muted) startVoiceLoop();
+    if (wasQueued) { startQueueListening(); }
+    else if (state !== "idle" && !muted) { startVoiceLoop(); }
     return;
   }
 
+  if (wasQueued) {
+    queuedTurns.push(text);
+    startQueueListening();
+    return;
+  }
+
+  await processTranscript(text);
+}
+
+async function processTranscript(text) {
   if (overMode) {
     if (!OVER_RE.test(text)) {
       overBuffer.push(text);
@@ -344,17 +360,16 @@ async function onRecordingStopped() {
         pendingUserLine = appendLine("user pending", "you");
       }
       setLineText(pendingUserLine, combined);
-      if (state !== "idle" && !muted) startVoiceLoop();
+      if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
       return;
     }
-    // Standalone "over" → commit buffer and send.
     const finalText = overBuffer.join(" ").trim();
     overBuffer = [];
     const committedLine = pendingUserLine;
     pendingUserLine = null;
     if (!finalText) {
       if (committedLine) committedLine.remove();
-      if (state !== "idle" && !muted) startVoiceLoop();
+      if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
       return;
     }
     committedLine.classList.remove("pending");
@@ -371,8 +386,7 @@ async function onRecordingStopped() {
 
 async function sendTurn(userText) {
   setState("thinking");
-  missedSpeech = false;
-  missedFrames = 0;
+  startQueueListening();
   currentTurn = new AbortController();
   let assistantText = "";
   currentAssistantLine = appendLine("assistant", "claude", "…");
@@ -437,11 +451,19 @@ async function sendTurn(userText) {
   const reopened = await openMic();
   if (!reopened) return;
   startVoiceLoop();
-  if (missedSpeech) {
-    missedSpeech = false;
-    missedFrames = 0;
-    playMissedBeep();
-    appendLine("assistant warning", "!", "missed what you said while i was busy — try again");
+
+  // Drain anything the user said while we were busy. The recursive sendTurn
+  // inside processTranscript will itself drain the rest, so a single shift is
+  // enough — but we loop defensively in case a queued item was a no-op.
+  if (queuedTurns.length) {
+    playQueuedBeep();
+    appendLine("assistant warning", "!", `picking up what you said while i was busy (${queuedTurns.length} chunk${queuedTurns.length === 1 ? "" : "s"})`);
+    while (queuedTurns.length && state !== "idle" && !muted) {
+      const text = queuedTurns.shift();
+      if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+      await processTranscript(text);
+    }
+    if (!vadTimer && analyser && state !== "idle" && !muted) startVoiceLoop();
   }
 }
 
@@ -481,6 +503,7 @@ stopBtn.addEventListener("click", () => {
   muted = false;
   muteBtn.setAttribute("aria-pressed", "false");
   muteBtn.textContent = "mute mic";
+  queuedTurns = [];
   try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
@@ -491,6 +514,7 @@ resetBtn.addEventListener("click", async () => {
   try { await fetch("/api/reset", { method: "POST" }); }
   catch {}
   overBuffer = [];
+  queuedTurns = [];
   pendingUserLine = null;
   currentAssistantLine = null;
   logEl.textContent = "";
@@ -510,6 +534,7 @@ muteBtn.addEventListener("click", async () => {
     muted = true;
     muteBtn.setAttribute("aria-pressed", "true");
     muteBtn.textContent = "unmute mic";
+    queuedTurns = [];
     try { currentTurn?.abort(); } catch {}
     try { audioEl?.pause(); } catch {}
     closeMic();
