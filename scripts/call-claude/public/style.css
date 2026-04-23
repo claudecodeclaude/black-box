@@ -130,3 +130,8 @@ body.state-error #orb {
   color: #000;
   border-color: var(--accent);
 }
+.btn.toggle[aria-pressed="true"] {
+  background: var(--accent-warm);
+  color: #000;
+  border-color: var(--accent-warm);
+}

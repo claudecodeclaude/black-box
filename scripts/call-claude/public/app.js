@@ -17,10 +17,17 @@ const responseEl = $("response");
 const startBtn = $("startBtn");
 const stopBtn = $("stopBtn");
 const resetBtn = $("resetBtn");
+const overModeBtn = $("overModeBtn");
 
 let state = "idle";
 let currentTurn = null; // AbortController for /api/turn
 let wakeLock = null;
+
+// "over" mode: buffer transcripts across silence breaks until the user
+// says "over", then send the whole thing as one turn.
+let overMode = false;
+let overBuffer = [];
+const OVER_RE = /\s*\bover\b[\s.!?,]*$/i;
 
 // persistent audio plumbing (created once when the call starts)
 let micStream = null;
@@ -262,6 +269,26 @@ async function onRecordingStopped() {
     if (state !== "idle") startVoiceLoop();
     return;
   }
+
+  if (overMode) {
+    overBuffer.push(text);
+    const combined = overBuffer.join(" ");
+    transcriptEl.textContent = combined;
+    if (!OVER_RE.test(text)) {
+      if (state !== "idle") startVoiceLoop();
+      return;
+    }
+    const finalText = combined.replace(OVER_RE, "").trim();
+    overBuffer = [];
+    if (!finalText) {
+      if (state !== "idle") startVoiceLoop();
+      return;
+    }
+    transcriptEl.textContent = finalText;
+    await sendTurn(finalText);
+    return;
+  }
+
   await sendTurn(text);
 }
 
@@ -374,9 +401,16 @@ stopBtn.addEventListener("click", () => {
 resetBtn.addEventListener("click", async () => {
   try { await fetch("/api/reset", { method: "POST" }); }
   catch {}
+  overBuffer = [];
   responseEl.textContent = "";
   transcriptEl.textContent = "";
   stateEl.textContent = "new conversation — tap start";
+});
+
+overModeBtn.addEventListener("click", () => {
+  overMode = !overMode;
+  overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
+  if (!overMode) overBuffer = [];
 });
 
 setState("idle");
