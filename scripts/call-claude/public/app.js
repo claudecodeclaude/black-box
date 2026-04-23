@@ -25,8 +25,12 @@ let wakeLock = null;
 let muted = false; // mic paused — call stays alive, nothing is transcribed
 
 // "over" mode: buffer transcripts across silence breaks until the user
-// says "over", then send the whole thing as one turn.
-let overMode = false;
+// says "over", then send the whole thing as one turn. Defaults on;
+// preference is remembered across page reloads.
+let overMode = (() => {
+  const stored = localStorage.getItem("callClaudeOverMode");
+  return stored === null ? true : stored === "true";
+})();
 let overBuffer = [];
 // Trigger only when the chunk is the standalone word "over" (±punctuation),
 // i.e. Jason pauses, says "over" on its own, then pauses again. Matching
@@ -455,6 +459,7 @@ resetBtn.addEventListener("click", async () => {
 overModeBtn.addEventListener("click", () => {
   overMode = !overMode;
   overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
+  localStorage.setItem("callClaudeOverMode", String(overMode));
   if (!overMode) overBuffer = [];
 });
 
@@ -478,4 +483,5 @@ muteBtn.addEventListener("click", async () => {
   }
 });
 
+overModeBtn.setAttribute("aria-pressed", overMode ? "true" : "false");
 setState("idle");
