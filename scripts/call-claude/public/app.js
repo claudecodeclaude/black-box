@@ -47,6 +47,7 @@ let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
 // Running chat log elements
 let pendingUserLine = null; // user line being built up during overMode buffering
 let currentAssistantLine = null; // assistant line being updated while streaming
+let queuedLineEls = []; // preview lines shown while Claude is busy (removed on drain)
 
 function appendLine(role, speakerLabel, text = "") {
   const line = document.createElement("div");
@@ -94,6 +95,8 @@ function doMute() {
   muteBtn.textContent = "unmute mic";
   queuedTurns = [];
   overBuffer = [];
+  for (const el of queuedLineEls) el.remove();
+  queuedLineEls = [];
   if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
   try { currentTurn?.abort(); } catch {}
   try { audioEl?.pause(); } catch {}
@@ -120,6 +123,7 @@ async function doReset() {
   try { await fetch("/api/reset", { method: "POST" }); } catch {}
   overBuffer = [];
   queuedTurns = [];
+  queuedLineEls = [];
   pendingUserLine = null;
   currentAssistantLine = null;
   logEl.textContent = "";
@@ -286,13 +290,14 @@ function closeMic() {
 
 // ---------- VAD + recording ----------
 
-// Tuned higher than typical to ignore car noise, door clicks, and other
-// transients. Voice sustains energy; clicks don't — SPEECH_START_FRAMES gates
-// on sustained above-threshold audio.
-const SILENCE_THRESHOLD = 0.03;  // RMS (0-1)
-const SPEECH_START_FRAMES = 6;   // ~120ms sustained above threshold
+// Voice sustains energy; brief clicks/whooshes don't — so we gate on a few
+// sustained frames above threshold rather than raising the threshold too high
+// (which would miss soft speech). This tuning tries to keep sensitivity high
+// for Jason's voice while still rejecting transients.
+const SILENCE_THRESHOLD = 0.018; // RMS (0-1)
+const SPEECH_START_FRAMES = 4;   // ~80ms sustained above threshold
 const SILENCE_HANG_MS = 1200;    // stop after this much continuous silence
-const MIN_RECORDING_MS = 600;    // ignore too-short blips (clicks, whooshes)
+const MIN_RECORDING_MS = 500;    // ignore too-short blips
 const MAX_RECORDING_MS = 20_000; // hard cap per utterance
 
 function startVoiceLoop() {
@@ -416,6 +421,8 @@ async function onRecordingStopped() {
 
   if (wasQueued) {
     queuedTurns.push(text);
+    const line = appendLine("user pending", "queued", text);
+    queuedLineEls.push(line);
     startQueueListening();
     return;
   }
@@ -535,6 +542,8 @@ async function sendTurn(userText) {
   // enough — but we loop defensively in case a queued item was a no-op.
   if (queuedTurns.length) {
     playQueuedBeep();
+    for (const el of queuedLineEls) el.remove();
+    queuedLineEls = [];
     appendLine("assistant warning", "!", `picking up what you said while i was busy (${queuedTurns.length} chunk${queuedTurns.length === 1 ? "" : "s"})`);
     while (queuedTurns.length && state !== "idle" && !muted) {
       const text = queuedTurns.shift();
@@ -582,6 +591,8 @@ stopBtn.addEventListener("click", () => {
   muteBtn.setAttribute("aria-pressed", "false");
   muteBtn.textContent = "mute mic";
   queuedTurns = [];
+  for (const el of queuedLineEls) el.remove();
+  queuedLineEls = [];
   try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
