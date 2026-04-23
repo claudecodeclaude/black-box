@@ -37,6 +37,20 @@ export default function TestimonialsPage() {
   async function refresh() {
     const res = await fetch("/api/apex/testimonials", { cache: "no-store" });
     const data = (await res.json()) as TestimonialsState;
+    // Heal any numbering gaps left over from earlier deletes.
+    const sorted = [...data.testimonials].sort((a, b) => a.number - b.number);
+    const hasGap = sorted.some((t, i) => t.number !== i + 1);
+    if (hasGap) {
+      const compactRes = await fetch("/api/apex/testimonials/compact", {
+        method: "POST",
+      });
+      if (compactRes.ok) {
+        const j = await compactRes.json();
+        setState(j.state);
+        setLoaded(true);
+        return;
+      }
+    }
     setState(data);
     setLoaded(true);
   }

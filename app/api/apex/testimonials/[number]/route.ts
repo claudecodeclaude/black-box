@@ -38,9 +38,15 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "bad number" }, { status: 400 });
   }
   const state = await getState();
+  // Remove the entry, then renumber everything above it down by one so the
+  // sequence stays contiguous (1..N). nextNumber becomes N+1.
+  const remaining = state.testimonials
+    .filter((t) => t.number !== n)
+    .sort((a, b) => a.number - b.number)
+    .map((t, i) => ({ ...t, number: i + 1 }));
   const next = {
-    ...state,
-    testimonials: state.testimonials.filter((t) => t.number !== n),
+    testimonials: remaining,
+    nextNumber: remaining.length + 1,
   };
   await setState(next);
   return NextResponse.json({ ok: true, state: next });
