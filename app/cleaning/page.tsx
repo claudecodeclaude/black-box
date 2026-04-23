@@ -146,9 +146,10 @@ export default function CleaningPage() {
   const [mysteryPopVisible, setMysteryPopVisible] = useState(false);
   const congratsShownThisSession = useRef(false);
   const prevCheckedRef = useRef<Set<string>>(new Set());
+  const writeInFlightRef = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(
@@ -168,7 +169,7 @@ export default function CleaningPage() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
-      setLoading(false);
+      if (!opts.silent) setLoading(false);
     }
   }, [viewISO, prevISO]);
 
@@ -176,6 +177,43 @@ export default function CleaningPage() {
     load();
     window.scrollTo(0, 0);
     congratsShownThisSession.current = false;
+  }, [load]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const tick = () => {
+      if (document.hidden) return;
+      if (writeInFlightRef.current > 0) return;
+      load({ silent: true });
+    };
+
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(tick, 5000);
+    };
+    const stop = () => {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        load({ silent: true });
+        start();
+      }
+    };
+
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [load]);
 
   const visible = useMemo(() => {
@@ -226,16 +264,21 @@ export default function CleaningPage() {
   }, [activeVisible.length, isCurrentWeek, now, viewISO, visible]);
 
   async function post(body: unknown) {
-    const res = await fetch("/api/cleaning/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error("Save failed");
-    const data = await res.json();
-    if (data.global) setGlobalState(data.global);
-    if (data.week) setThisWeek(data.week);
-    return data;
+    writeInFlightRef.current++;
+    try {
+      const res = await fetch("/api/cleaning/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      const data = await res.json();
+      if (data.global) setGlobalState(data.global);
+      if (data.week) setThisWeek(data.week);
+      return data;
+    } finally {
+      writeInFlightRef.current = Math.max(0, writeInFlightRef.current - 1);
+    }
   }
 
   async function setItemState(itemId: string, value: ItemStateValue | null) {
@@ -298,7 +341,7 @@ export default function CleaningPage() {
         </div>
         <div className="gb-week-chip">{whose.toUpperCase()}&apos;S WEEK</div>
         <div style={{ fontSize: 7, color: "#999", marginTop: 8, letterSpacing: 1 }}>
-          build v3 · today {now.toISOString().slice(0, 10)} · mon {currentISO}
+          build v5 · today {now.toISOString().slice(0, 10)} · mon {currentISO}
         </div>
       </div>
 
