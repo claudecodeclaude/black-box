@@ -42,7 +42,9 @@ const UNMUTE_RE = /^\s*(un-?\s*(mute|moot|meut))(\s+mic)?[\s.!?,]*$/i;
 const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 // Clear the current over-mode buffer without sending — used when Whisper
 // misheard something mid-sentence and Jason wants to restart.
-const SCRATCH_RE = /^\s*(scratch\s+that|scratch|never\s*mind|cancel(\s+that)?|redo|start\s+over)[\s.!?,]*$/i;
+// Accept common Whisper mishears for "scratch that" (the sh/ch sound gets
+// mangled easily): preach, crouch, crotch, scrap, scrash, catch, scratch.
+const SCRATCH_RE = /^\s*(scratch|scrap|scrash|crouch|crotch|preach|catch|pritch|scrash)\s*(that|this)?[\s.!?,]*$|^\s*(never\s*mind|cancel(\s+that)?|redo|start\s+over)[\s.!?,]*$/i;
 // "close call claude" — full stop, mic off, splash back up.
 const CLOSE_RE = /^\s*close\s+(call\s*)?(claude|clod|cloud|cloed|clawed)[\s.!?,]*$/i;
 
@@ -78,6 +80,53 @@ function setLineText(line, text) {
   const body = line.querySelector(".body");
   if (body) body.textContent = text;
   logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Separate AudioContext for UI sound effects — survives the mic's audioCtx
+// being opened/closed so we can drip/beep regardless of mic state.
+let fxCtx = null;
+function ensureFxCtx() {
+  if (!fxCtx || fxCtx.state === "closed") {
+    try { fxCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch { fxCtx = null; }
+  }
+  // Resume if suspended (iOS sometimes suspends after backgrounding)
+  if (fxCtx && fxCtx.state === "suspended") { fxCtx.resume().catch(() => {}); }
+  return fxCtx;
+}
+
+let dripTimer = null;
+function playDrip() {
+  const ctx = ensureFxCtx();
+  if (!ctx) return;
+  try {
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(700, t0);
+    osc.frequency.exponentialRampToValueAtTime(240, t0 + 0.09);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.09, t0 + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.14);
+  } catch {}
+}
+
+function startDripping() {
+  if (dripTimer) return;
+  // Kick one off immediately so Jason hears confirmation right after "over".
+  if (document.visibilityState === "visible") playDrip();
+  dripTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    playDrip();
+  }, 3000);
+}
+
+function stopDripping() {
+  if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
 }
 
 function playCommandBeep() {
@@ -283,8 +332,20 @@ function ensureAudio() {
   return audioEl;
 }
 
+// iOS Safari (17+) lets us force the audio session category so TTS plays out
+// the main speaker instead of the earpiece even while a mic stream was just
+// released. Falls back silently on unsupported browsers.
+function forceSpeakerRouting() {
+  try {
+    if (typeof navigator !== "undefined" && navigator.audioSession) {
+      navigator.audioSession.type = "playback";
+    }
+  } catch {}
+}
+
 async function speak(text) {
   if (!text) return;
+  forceSpeakerRouting();
   try {
     const res = await fetch("/api/speak", {
       method: "POST",
@@ -361,6 +422,10 @@ function closeMic() {
   try { audioCtx?.close(); } catch {}
   audioCtx = null;
   analyser = null;
+  // Force audio session back to playback so the next TTS goes out the main
+  // speaker, not the earpiece (iOS keeps the session in play-and-record
+  // otherwise).
+  forceSpeakerRouting();
 }
 
 // ---------- VAD + recording ----------
@@ -369,11 +434,11 @@ function closeMic() {
 // sustained frames above threshold rather than raising the threshold too high
 // (which would miss soft speech). This tuning tries to keep sensitivity high
 // for Jason's voice while still rejecting transients.
-const SILENCE_THRESHOLD = 0.008; // RMS (0-1) — more sensitive for soft speech
-const SPEECH_START_FRAMES = 2;   // ~40ms sustained above threshold — low so
-                                 // the first word isn't clipped. Short blips
-                                 // still transcribe to junk which the
-                                 // annotation filter below tosses.
+const SILENCE_THRESHOLD = 0.006; // RMS (0-1) — more sensitive for soft speech
+const SPEECH_START_FRAMES = 1;   // ~20ms — start recording on the very first
+                                 // above-threshold frame to minimize first-word
+                                 // clipping. Short blips still transcribe to
+                                 // junk which the annotation filter below tosses.
 const SILENCE_HANG_MS = 1200;    // stop after this much continuous silence
 const MIN_RECORDING_MS = 500;    // ignore too-short blips
 const MAX_RECORDING_MS = 20_000; // hard cap per utterance
@@ -387,6 +452,19 @@ function cleanTranscript(raw) {
     .replace(/[\[(][^\])]*[\])]/g, "") // drop [bracketed] and (parenthesized) tokens
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// For over-mode buffering: Whisper adds a "." or "..." on pauses, which then
+// makes the next chunk start with a capital, producing "I went to. The store."
+// Strip trailing sentence-end punctuation and lowercase the leading letter so
+// buffered pieces flow together naturally.
+function smoothBufferPiece(text, hasPrior) {
+  let t = text.trim().replace(/[\.\…]+\s*$/g, "").trim();
+  if (hasPrior && t.length > 0) {
+    const first = t[0];
+    if (first >= "A" && first <= "Z") t = first.toLowerCase() + t.slice(1);
+  }
+  return t;
 }
 
 function startVoiceLoop() {
@@ -530,7 +608,8 @@ function resumeVadForContext(wasQueued) {
 async function processTranscript(text) {
   if (overMode) {
     if (!OVER_RE.test(text)) {
-      overBuffer.push(text);
+      const smoothed = smoothBufferPiece(text, overBuffer.length > 0);
+      if (smoothed) overBuffer.push(smoothed);
       const combined = overBuffer.join(" ");
       if (!pendingUserLine) {
         pendingUserLine = appendLine("user pending", "you");
@@ -574,6 +653,7 @@ function cleanForTTS(s) {
 
 async function sendTurn(userText) {
   setState("thinking");
+  startDripping();
   startQueueListening();
   currentTurn = new AbortController();
   let assistantText = "";
@@ -595,6 +675,7 @@ async function sendTurn(userText) {
     micClosedForSpeech = true;
     if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
     closeMic();
+    stopDripping(); // TTS is about to play — no more drip
     setState("speaking");
   };
 
@@ -669,6 +750,7 @@ async function sendTurn(userText) {
   }
 
   if (ttsRunner) await ttsRunner;
+  stopDripping(); // belt-and-suspenders for edge cases (no TTS emitted, errors, etc)
 
   currentAssistantLine = null;
 
@@ -712,6 +794,11 @@ splashEl.addEventListener("click", (ev) => {
   const el = ensureAudio();
   el.src = SILENT_WAV;
   el.play().catch(() => {});
+  // Prime the FX AudioContext so drip/beep sounds can play without another
+  // user gesture.
+  ensureFxCtx();
+  // Tell iOS we primarily want to play audio back (speaker), not record.
+  forceSpeakerRouting();
 
   splashEl.classList.add("hidden");
   stateEl.textContent = "requesting mic...";
@@ -738,6 +825,7 @@ stopBtn.addEventListener("click", () => {
   queuedTurns = [];
   for (const el of queuedLineEls) el.remove();
   queuedLineEls = [];
+  stopDripping();
   try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
