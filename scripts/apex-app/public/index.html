@@ -4,33 +4,60 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Apex</title>
+    <title>Apex App</title>
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <main>
-      <h1 class="brand">APEX</h1>
-      <p class="tagline">Staff hub &middot; HIPAA-secured &middot; Tailnet only</p>
+    <main id="root">
+      <section id="view-login" hidden>
+        <h1 class="brand">Apex App</h1>
+        <p class="tagline">Staff hub &middot; HIPAA-secured &middot; Tailnet only</p>
 
-      <form class="login" autocomplete="off" onsubmit="event.preventDefault(); alert('Auth not wired up yet — this is the scaffold.');">
-        <label>
-          <span>Username</span>
-          <input type="text" name="username" disabled placeholder="coming soon" />
-        </label>
-        <label>
-          <span>Password</span>
-          <input type="password" name="password" disabled placeholder="coming soon" />
-        </label>
-        <label>
-          <span>6-digit code</span>
-          <input type="text" name="code" disabled inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="MFA" />
-        </label>
-        <button type="submit" disabled>Sign in</button>
-      </form>
+        <form id="loginForm" class="login" autocomplete="off">
+          <label>
+            <span>Username</span>
+            <input type="text" name="username" required autocomplete="username" />
+          </label>
+          <label>
+            <span>Password</span>
+            <input type="password" name="password" required autocomplete="current-password" />
+          </label>
+          <label>
+            <span>6-digit code</span>
+            <input type="text" name="mfa" required inputmode="numeric" pattern="[0-9 ]*" maxlength="7" autocomplete="one-time-code" />
+          </label>
+          <div id="loginError" class="error" hidden></div>
+          <button type="submit">Sign in</button>
+        </form>
+      </section>
 
-      <div class="status">
-        <strong>Status:</strong> scaffold live on Tailnet. Next: SQLite + users + bcrypt + TOTP MFA + audit log + RBAC.
-      </div>
+      <section id="view-dashboard" hidden>
+        <header class="topbar">
+          <h1 class="brand small">Apex App</h1>
+          <div class="who">
+            <span id="whoUsername">&nbsp;</span>
+            <span id="whoRole" class="role">&nbsp;</span>
+            <button id="logoutBtn" class="ghost">Sign out</button>
+          </div>
+        </header>
+        <div class="grid">
+          <div class="card">
+            <h3>Welcome</h3>
+            <p>You&rsquo;re signed in. This is where your sub-apps will appear based on your role. Coming soon:</p>
+            <ul>
+              <li>Patient records</li>
+              <li>Office procedures</li>
+              <li>Schedule view</li>
+              <li>Staff management (admin only)</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-loading" class="splash">
+        <div class="brand">Apex App</div>
+      </section>
     </main>
+    <script src="/app.js"></script>
   </body>
 </html>
