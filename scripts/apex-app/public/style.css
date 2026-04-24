@@ -1,0 +1,84 @@
+:root {
+  --bg: #0a0a0a;
+  --fg: #f5f5f5;
+  --muted: #888;
+  --accent: #4dd0ff;
+  --border: #222;
+  --surface: #141414;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  min-height: 100vh;
+}
+main {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 64px 24px 40px;
+}
+.brand {
+  font-size: 44px;
+  letter-spacing: 10px;
+  margin: 0 0 4px;
+  font-weight: 900;
+  color: var(--accent);
+}
+.tagline {
+  margin: 0 0 36px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+form.login {
+  display: grid;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+form.login label {
+  display: grid;
+  gap: 4px;
+}
+form.login label span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+form.login input {
+  background: #0a0a0a;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 15px;
+  font-family: inherit;
+}
+form.login input:disabled { opacity: 0.55; }
+form.login button {
+  background: var(--accent);
+  color: #001018;
+  border: none;
+  border-radius: 999px;
+  padding: 13px;
+  font-size: 15px;
+  font-weight: 700;
+  margin-top: 6px;
+  cursor: pointer;
+}
+form.login button:disabled { opacity: 0.35; cursor: not-allowed; }
+.status {
+  margin-top: 24px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.status strong { color: var(--fg); }

@@ -106,14 +106,23 @@ function doMute({ silent = false } = {}) {
   for (const el of queuedLineEls) el.remove();
   queuedLineEls = [];
   if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
-  // Leave currentTurn + audioEl alone — muting your mic shouldn't cut off
-  // Claude's response. It just stops sending what you say next.
   setState("muted");
   if (!silent) {
     playCommandBeep();
     appendLine("assistant warning", "!", "muted — say unmute to resume");
   }
-  startQueueListening();
+  if (silent) {
+    // Auto-mute after "over": fully close the mic so iOS routes TTS out the
+    // main speaker instead of the earpiece (iOS keeps the audio session in
+    // PlayAndRecord mode while a mic stream is live, which sends audio out
+    // at low volume to the earpiece). sendTurn's end handler reopens the
+    // mic for voice-unmute detection once the turn finishes.
+    closeMic();
+  } else {
+    // Manual mute (tap or "mute mic"): keep the mic open so voice "unmute"
+    // responds immediately.
+    startQueueListening();
+  }
 }
 
 function doUnmute() {
@@ -360,7 +369,7 @@ function closeMic() {
 // sustained frames above threshold rather than raising the threshold too high
 // (which would miss soft speech). This tuning tries to keep sensitivity high
 // for Jason's voice while still rejecting transients.
-const SILENCE_THRESHOLD = 0.012; // RMS (0-1) — more sensitive for soft speech
+const SILENCE_THRESHOLD = 0.008; // RMS (0-1) — more sensitive for soft speech
 const SPEECH_START_FRAMES = 2;   // ~40ms sustained above threshold — low so
                                  // the first word isn't clipped. Short blips
                                  // still transcribe to junk which the
