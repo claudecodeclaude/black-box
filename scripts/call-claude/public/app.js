@@ -97,7 +97,7 @@ function playCommandBeep() {
   } catch (e) { console.warn("beep failed", e); }
 }
 
-function doMute() {
+function doMute({ silent = false } = {}) {
   muted = true;
   muteBtn.setAttribute("aria-pressed", "true");
   muteBtn.textContent = "unmute mic";
@@ -109,8 +109,10 @@ function doMute() {
   // Leave currentTurn + audioEl alone — muting your mic shouldn't cut off
   // Claude's response. It just stops sending what you say next.
   setState("muted");
-  playCommandBeep();
-  appendLine("assistant warning", "!", "muted — say unmute to resume");
+  if (!silent) {
+    playCommandBeep();
+    appendLine("assistant warning", "!", "muted — say unmute to resume");
+  }
   startQueueListening();
 }
 
@@ -539,11 +541,15 @@ async function processTranscript(text) {
     }
     committedLine.classList.remove("pending");
     setLineText(committedLine, finalText);
+    // Auto-mute for the duration of Claude's turn so the mic doesn't pick up
+    // background noise. Jason can say "unmute mic" to resume listening.
+    doMute({ silent: true });
     await sendTurn(finalText);
     return;
   }
 
   appendLine("user", "you", text);
+  doMute({ silent: true });
   await sendTurn(text);
 }
 
