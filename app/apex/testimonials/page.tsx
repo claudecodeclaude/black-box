@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Match, Testimonial, TestimonialsState, EMPTY_STATE } from "./types";
+import {
+  EMPTY_LOGS,
+  EMPTY_STATE,
+  LogsState,
+  Match,
+  Testimonial,
+  TestimonialsState,
+} from "./types";
 
 // The matcher runs on the Mac Mini over Tailscale.
 const TM_BASE = "https://jasons-mac-mini-1.taile58089.ts.net:7685";
@@ -33,6 +40,8 @@ export default function TestimonialsPage() {
   const [matchResult, setMatchResult] = useState<MatchResult>({ status: "idle" });
 
   const [dbOpen, setDbOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [logs, setLogs] = useState<LogsState>(EMPTY_LOGS);
 
   async function refresh() {
     const res = await fetch("/api/apex/testimonials", { cache: "no-store" });
@@ -55,8 +64,17 @@ export default function TestimonialsPage() {
     setLoaded(true);
   }
 
+  async function refreshLogs() {
+    const res = await fetch("/api/apex/testimonials/logs", { cache: "no-store" });
+    if (res.ok) {
+      const data = (await res.json()) as LogsState;
+      setLogs(data);
+    }
+  }
+
   useEffect(() => {
     refresh();
+    refreshLogs();
   }, []);
 
   async function transcribeFromUrl() {
@@ -174,6 +192,15 @@ export default function TestimonialsPage() {
       }
       const json = (await res.json()) as { matches: Match[] };
       setMatchResult({ status: "done", matches: json.matches });
+      // Log this run (fire-and-forget)
+      fetch("/api/apex/testimonials/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: notes.trim(), matches: json.matches }),
+      })
+        .then((r) => r.ok && r.json())
+        .then((j) => j?.state && setLogs(j.state))
+        .catch(() => {});
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setMatchResult({
@@ -322,8 +349,17 @@ export default function TestimonialsPage() {
         )}
       </section>
 
-      {/* Database toggle button */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 8, marginBottom: dbOpen ? 24 : 0 }}>
+      {/* Database + past entries toggles */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 10,
+          marginTop: 8,
+          marginBottom: dbOpen || logsOpen ? 24 : 0,
+        }}
+      >
         <button
           onClick={() => setDbOpen((v) => !v)}
           style={{
@@ -340,7 +376,83 @@ export default function TestimonialsPage() {
         >
           {dbOpen ? "▴ Close database" : `▾ Testimonial database (${state.testimonials.length})`}
         </button>
+        <button
+          onClick={() => setLogsOpen((v) => !v)}
+          style={{
+            background: logsOpen ? "var(--accent-warm, #ff9a4d)" : "var(--surface)",
+            color: logsOpen ? "#000" : "inherit",
+            border: "1px solid var(--border)",
+            borderRadius: 999,
+            padding: "12px 28px",
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: "pointer",
+            letterSpacing: 1,
+          }}
+        >
+          {logsOpen ? "▴ Close past entries" : `▾ Past entries database (${logs.entries.length})`}
+        </button>
       </div>
+
+      {/* Past entries log (read-only, chronological oldest → newest, Eastern time) */}
+      <section style={{ display: logsOpen ? "block" : "none", marginBottom: 32 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>Past entries</h2>
+        {logs.entries.length === 0 ? (
+          <div style={{ color: "var(--muted)", fontSize: 14 }}>
+            No past entries yet. Every match you run gets logged here.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            {[...logs.entries]
+              .sort(
+                (a, b) =>
+                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+              )
+              .map((entry) => (
+                <div
+                  key={entry.id}
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: 14,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--muted)",
+                      letterSpacing: 1,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {formatEastern(entry.createdAt)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "#e5e5e5",
+                      whiteSpace: "pre-wrap",
+                      lineHeight: 1.45,
+                      marginBottom: 10,
+                      paddingBottom: 10,
+                      borderBottom: "1px dashed var(--border)",
+                    }}
+                  >
+                    {entry.notes}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--accent)", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    {entry.matches.map((m) => (
+                      <span key={m.number} title={m.reason}>
+                        #{m.number}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+      </section>
 
       {/* Admin: add + list (collapsible) */}
       <section style={{ display: dbOpen ? "block" : "none" }}>
@@ -593,6 +705,23 @@ function btnSmall(bg: string, color: string): React.CSSProperties {
     fontSize: 12,
     cursor: "pointer",
   };
+}
+
+const EASTERN_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+  timeZoneName: "short",
+});
+
+function formatEastern(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return EASTERN_FMT.format(d);
 }
 
 function arrowBtn(disabled: boolean): React.CSSProperties {

@@ -22,3 +22,16 @@ export type Match = {
 export type MatchResponse = {
   matches: Match[];
 };
+
+export type PastEntry = {
+  id: string;
+  createdAt: string;   // ISO UTC
+  notes: string;
+  matches: Match[];
+};
+
+export type LogsState = {
+  entries: PastEntry[];
+};
+
+export const EMPTY_LOGS: LogsState = { entries: [] };

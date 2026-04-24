@@ -1,7 +1,7 @@
 import { createClient, VercelKV } from "@vercel/kv";
 import { promises as fs } from "fs";
 import path from "path";
-import { EMPTY_STATE, TestimonialsState } from "./types";
+import { EMPTY_LOGS, EMPTY_STATE, LogsState, TestimonialsState } from "./types";
 
 const KV_URL =
   process.env.KV_REST_API_URL ||
@@ -23,7 +23,9 @@ function getKV(): VercelKV {
 }
 
 const FALLBACK_FILE = path.join(process.cwd(), "data", "testimonials-state.json");
+const LOGS_FALLBACK_FILE = path.join(process.cwd(), "data", "testimonials-logs.json");
 const KEY = "testimonials:state";
+const LOGS_KEY = "testimonials:logs";
 
 async function readFallback(): Promise<TestimonialsState> {
   try {
@@ -53,4 +55,34 @@ export async function setState(s: TestimonialsState): Promise<void> {
     return;
   }
   await writeFallback(s);
+}
+
+async function readLogsFallback(): Promise<LogsState> {
+  try {
+    const raw = await fs.readFile(LOGS_FALLBACK_FILE, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return EMPTY_LOGS;
+  }
+}
+
+async function writeLogsFallback(data: LogsState) {
+  await fs.mkdir(path.dirname(LOGS_FALLBACK_FILE), { recursive: true });
+  await fs.writeFile(LOGS_FALLBACK_FILE, JSON.stringify(data, null, 2));
+}
+
+export async function getLogs(): Promise<LogsState> {
+  if (isKVConfigured) {
+    const v = await getKV().get<LogsState>(LOGS_KEY);
+    return v ?? EMPTY_LOGS;
+  }
+  return readLogsFallback();
+}
+
+export async function setLogs(s: LogsState): Promise<void> {
+  if (isKVConfigured) {
+    await getKV().set(LOGS_KEY, s);
+    return;
+  }
+  await writeLogsFallback(s);
 }
