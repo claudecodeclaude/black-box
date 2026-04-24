@@ -43,6 +43,8 @@ const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 // Clear the current over-mode buffer without sending — used when Whisper
 // misheard something mid-sentence and Jason wants to restart.
 const SCRATCH_RE = /^\s*(scratch\s+that|scratch|never\s*mind|cancel(\s+that)?|redo|start\s+over)[\s.!?,]*$/i;
+// "close call claude" — full stop, mic off, splash back up.
+const CLOSE_RE = /^\s*close\s+(call\s*)?(claude|clod|cloud|cloed|clawed)[\s.!?,]*$/i;
 
 // TTS voice — dynamic, client-side preference sent with each /api/speak call.
 let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
@@ -123,6 +125,24 @@ function doUnmute() {
     return;
   }
   startVoiceLoop();
+}
+
+function doClose() {
+  playCommandBeep();
+  setState("idle");
+  muted = false;
+  muteBtn.setAttribute("aria-pressed", "false");
+  muteBtn.textContent = "mute mic";
+  queuedTurns = [];
+  overBuffer = [];
+  for (const el of queuedLineEls) el.remove();
+  queuedLineEls = [];
+  if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+  try { audioEl?.pause(); } catch {}
+  try { currentTurn?.abort(); } catch {}
+  closeMic();
+  releaseWakeLock();
+  splashEl.classList.remove("hidden");
 }
 
 function doScratch() {
@@ -474,6 +494,7 @@ async function onRecordingStopped() {
 
   // Global voice commands — take precedence over queueing/over-mode so they
   // fire immediately even when captured during Claude's turn.
+  if (CLOSE_RE.test(text)) { doClose(); return; }
   if (MUTE_RE.test(text)) { doMute(); return; }
   if (NEW_CONV_RE.test(text)) { await doReset(); return; }
   if (SCRATCH_RE.test(text)) { doScratch(); return; }
