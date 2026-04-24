@@ -374,7 +374,7 @@ export default function TestimonialsPage() {
             letterSpacing: 1,
           }}
         >
-          {dbOpen ? "▴ Close database" : `▾ Testimonial database (${state.testimonials.length})`}
+          {dbOpen ? "▴ Close Database" : `▾ Testimonial Database (${state.testimonials.length})`}
         </button>
         <button
           onClick={() => setLogsOpen((v) => !v)}
@@ -390,7 +390,7 @@ export default function TestimonialsPage() {
             letterSpacing: 1,
           }}
         >
-          {logsOpen ? "▴ Close past entries" : `▾ Past entries database (${logs.entries.length})`}
+          {logsOpen ? "▴ Close Past Entries" : `▾ Past Entries Database (${logs.entries.length})`}
         </button>
       </div>
 
