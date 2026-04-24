@@ -13,11 +13,42 @@ import https from "node:https";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 
 const execFileAsync = promisify(execFile);
+
+// Run `claude -p` with the prompt piped through stdin so we're not bounded by
+// macOS's argv size limit (roughly 256KB) on large testimonial sets.
+function runClaudeStdin(prompt) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      CLAUDE_BIN,
+      [
+        "-p",
+        "--output-format", "json",
+        "--input-format", "text",
+        "--permission-mode", "bypassPermissions",
+      ],
+      {
+        cwd: WORK_DIR,
+        env: { ...process.env, TERM: "dumb" },
+        stdio: ["pipe", "pipe", "pipe"],
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`claude exit ${code}: ${stderr.slice(-500)}`));
+    });
+    child.stdin.end(prompt);
+  });
+}
 
 const HOST = process.env.TM_HOST || "100.74.13.60";
 const PORT = Number(process.env.TM_PORT || 7685);
@@ -133,20 +164,7 @@ async function handleMatch(req, res) {
 
   try {
     const t0 = Date.now();
-    const { stdout } = await execFileAsync(
-      CLAUDE_BIN,
-      [
-        "-p",
-        "--output-format", "json",
-        "--permission-mode", "bypassPermissions",
-        prompt,
-      ],
-      {
-        cwd: WORK_DIR,
-        env: { ...process.env, TERM: "dumb" },
-        maxBuffer: 20 * 1024 * 1024,
-      }
-    );
+    const { stdout } = await runClaudeStdin(prompt);
     const ms = Date.now() - t0;
 
     let wrapper;
