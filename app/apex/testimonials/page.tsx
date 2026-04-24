@@ -402,11 +402,11 @@ export default function TestimonialsPage() {
             No past entries yet. Every match you run gets logged here.
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ display: "grid", gap: 14 }}>
             {[...logs.entries]
               .sort(
                 (a, b) =>
-                  new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+                  new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
               )
               .map((entry) => (
                 <div
@@ -415,7 +415,7 @@ export default function TestimonialsPage() {
                     background: "var(--surface)",
                     border: "1px solid var(--border)",
                     borderRadius: 10,
-                    padding: 14,
+                    padding: 16,
                   }}
                 >
                   <div
@@ -423,30 +423,66 @@ export default function TestimonialsPage() {
                       fontSize: 12,
                       color: "var(--muted)",
                       letterSpacing: 1,
-                      marginBottom: 8,
+                      marginBottom: 14,
                     }}
                   >
                     {formatEastern(entry.createdAt)}
                   </div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: "#e5e5e5",
-                      whiteSpace: "pre-wrap",
-                      lineHeight: 1.45,
-                      marginBottom: 10,
-                      paddingBottom: 10,
-                      borderBottom: "1px dashed var(--border)",
-                    }}
-                  >
-                    {entry.notes}
+
+                  {/* Section 1 — phone consult notes */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={sectionLabel}>Consult notes</div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#e5e5e5",
+                        whiteSpace: "pre-wrap",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {entry.notes}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 13, color: "var(--accent)", display: "flex", gap: 12, flexWrap: "wrap" }}>
-                    {entry.matches.map((m) => (
-                      <span key={m.number} title={m.reason}>
-                        #{m.number}
-                      </span>
-                    ))}
+
+                  {/* Section 2 — matched testimonial numbers */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={sectionLabel}>Matched testimonials</div>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        flexWrap: "wrap",
+                        fontSize: 22,
+                        fontWeight: 800,
+                        color: "var(--accent)",
+                      }}
+                    >
+                      {entry.matches.map((m) => (
+                        <span key={m.number}>#{m.number}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Section 3 — why each match */}
+                  <div>
+                    <div style={sectionLabel}>Why these match</div>
+                    <ul
+                      style={{
+                        margin: 0,
+                        paddingLeft: 20,
+                        fontSize: 13,
+                        color: "#d5d5d5",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {entry.matches.map((m) => (
+                        <li key={m.number} style={{ marginBottom: 4 }}>
+                          <strong style={{ color: "var(--accent)" }}>#{m.number}</strong>
+                          {" — "}
+                          {m.reason}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
               ))}
@@ -706,6 +742,15 @@ function btnSmall(bg: string, color: string): React.CSSProperties {
     cursor: "pointer",
   };
 }
+
+const sectionLabel: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: 2,
+  textTransform: "uppercase",
+  color: "var(--muted)",
+  marginBottom: 6,
+};
 
 const EASTERN_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
