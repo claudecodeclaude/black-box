@@ -16,7 +16,6 @@ const logEl = $("log");
 const splashEl = $("splash");
 const stopBtn = $("stopBtn");
 const muteBtn = $("muteBtn");
-const enrollBtn = $("enrollBtn");
 const orbEl = $("orb");
 
 let state = "idle";
@@ -401,7 +400,6 @@ function setState(next) {
   stateEl.textContent = next === "muted" ? "muted — tap unmute" : (labels[next] || next);
   stopBtn.disabled = next === "idle" || next === "error";
   muteBtn.disabled = next === "idle" || next === "error";
-  enrollBtn.disabled = next === "idle" || next === "error";
 
   // Kill the 30-second ready-chime reminder whenever we leave the
   // waiting-for-input states. sendTurn/doMute re-start it when appropriate.
@@ -1214,74 +1212,6 @@ muteBtn.addEventListener("click", () => {
   if (state === "idle" || state === "error") return;
   if (!muted) doMute();
   else doUnmute();
-});
-
-// --- Voice-print enrollment ----------------------------------------------
-// Records ~15 seconds while Jason reads anything aloud, then ships it to
-// /api/voice-enroll. After enrollment, every /api/transcribe response will
-// include {isJason, similarity} and non-Jason chunks get dropped silently
-// in onRecordingStopped.
-let enrolling = false;
-enrollBtn.addEventListener("click", async () => {
-  if (enrolling || state === "idle" || state === "error") return;
-  if (!micStream) {
-    appendLine("assistant warning", "!", "mic not open — try after start");
-    return;
-  }
-  enrolling = true;
-  enrollBtn.disabled = true;
-  enrollBtn.textContent = "recording 15s...";
-  appendLine("assistant warning", "!", "recording 15 seconds for voice enrollment — please read or talk continuously");
-
-  // Pause VAD/recording loop so it doesn't fight the enrollment recorder.
-  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
-
-  const chunks = [];
-  let recorder;
-  try {
-    recorder = new MediaRecorder(micStream, recordingMime ? { mimeType: recordingMime } : {});
-  } catch (e) {
-    appendLine("assistant warning", "!", `enroll failed: ${e.message || e}`);
-    enrolling = false;
-    enrollBtn.disabled = false;
-    enrollBtn.textContent = "enroll voice";
-    if (state !== "idle" && !muted && analyser) startVoiceLoop();
-    return;
-  }
-  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-  recorder.onstop = async () => {
-    const blob = new Blob(chunks, { type: recordingMime || "audio/webm" });
-    try {
-      const res = await fetch("/api/voice-enroll", {
-        method: "POST",
-        headers: { "Content-Type": blob.type },
-        body: blob,
-      });
-      const json = await res.json().catch(() => ({}));
-      if (res.ok) {
-        appendLine("assistant warning", "!", "voice enrolled — only your voice will trigger turns now");
-        playCommandBeep();
-      } else {
-        appendLine("assistant warning", "!", `enroll error: ${json.error || res.status}`);
-      }
-    } catch (err) {
-      appendLine("assistant warning", "!", `enroll fetch failed: ${err.message || err}`);
-    } finally {
-      enrolling = false;
-      enrollBtn.disabled = false;
-      enrollBtn.textContent = "enroll voice";
-      if (state !== "idle" && !muted && analyser) startVoiceLoop();
-    }
-  };
-  try { recorder.start(); }
-  catch (e) {
-    appendLine("assistant warning", "!", `recorder start failed: ${e.message || e}`);
-    enrolling = false;
-    enrollBtn.disabled = false;
-    enrollBtn.textContent = "enroll voice";
-    return;
-  }
-  setTimeout(() => { try { recorder.stop(); } catch {} }, 15_000);
 });
 
 setState("idle");
