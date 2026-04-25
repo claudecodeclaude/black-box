@@ -125,11 +125,25 @@ function startDripping() {
   dripTimer = setInterval(() => {
     if (document.visibilityState !== "visible") return;
     playDrip();
-  }, 5000);
+  }, 7000);
 }
 
 function stopDripping() {
   if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
+}
+
+let readyChimeTimer = null;
+function startReadyChime() {
+  if (readyChimeTimer) return;
+  if (document.visibilityState === "visible") playReadyChime();
+  readyChimeTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    if (state !== "listening" || muted) return;
+    playReadyChime();
+  }, 30000);
+}
+function stopReadyChime() {
+  if (readyChimeTimer) { clearInterval(readyChimeTimer); readyChimeTimer = null; }
 }
 
 function playReadyChime() {
@@ -184,18 +198,10 @@ function doMute({ silent = false } = {}) {
     playCommandBeep();
     appendLine("assistant warning", "!", "muted — say unmute to resume");
   }
-  if (silent) {
-    // Auto-mute after "over": fully close the mic so iOS routes TTS out the
-    // main speaker instead of the earpiece (iOS keeps the audio session in
-    // PlayAndRecord mode while a mic stream is live, which sends audio out
-    // at low volume to the earpiece). sendTurn's end handler reopens the
-    // mic for voice-unmute detection once the turn finishes.
-    closeMic();
-  } else {
-    // Manual mute (tap or "mute mic"): keep the mic open so voice "unmute"
-    // responds immediately.
-    startQueueListening();
-  }
+  // Keep the mic open in both silent (auto) and manual mute so voice unmute
+  // responds at any time — including during Claude's TTS playback.
+  // forceSpeakerRouting() handles iOS audio routing.
+  startQueueListening();
 }
 
 function doUnmute() {
@@ -296,6 +302,14 @@ function setState(next) {
   stateEl.textContent = next === "muted" ? "muted — tap unmute" : (labels[next] || next);
   stopBtn.disabled = next === "idle" || next === "error";
   muteBtn.disabled = next === "idle" || next === "error";
+
+  // The ready chime ("your turn to talk") replays every 30 seconds while
+  // we're idly listening for input — but only in true listening state.
+  if (next === "listening" && !muted) {
+    startReadyChime();
+  } else {
+    stopReadyChime();
+  }
 }
 
 // ---------- wake lock ----------
@@ -622,9 +636,13 @@ async function onRecordingStopped() {
     return;
   }
 
-  // While muted, the only transcript that matters is "unmute".
-  if (muted) {
+  // While muted OR while Claude is currently speaking, only voice commands
+  // matter — discard everything else. (Mic stays open during speak so Jason
+  // can interject with mute/unmute/close commands, but Claude's own TTS
+  // bleeding back into the mic must not be processed as a real turn.)
+  if (muted || state === "speaking") {
     if (UNMUTE_RE.test(text)) { doUnmute(); return; }
+    if (CLOSE_RE.test(text)) { doClose(); return; }
     resumeVadForContext(wasQueued);
     return;
   }
@@ -746,17 +764,13 @@ async function sendTurn(userText) {
     micClosedForSpeech = true;
     stopDripping(); // TTS is about to play — no more drip
     if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
-    if (muted) {
-      // Keep the mic open during TTS so Jason can voice-"unmute" mid-talk.
-      // Captured audio is discarded by the muted branch in onRecordingStopped
-      // unless it matches UNMUTE_RE. forceSpeakerRouting() in speak() keeps
-      // iOS from sending TTS to the earpiece while the mic is open.
-      setState("muted");
-      startQueueListening();
-    } else {
-      closeMic();
-      setState("speaking");
-    }
+    // Keep the mic open during TTS so Jason can say "unmute mic" or start
+    // cueing the next message hands-free. forceSpeakerRouting() in speak()
+    // keeps iOS from sending audio to the earpiece while the mic is live.
+    // onRecordingStopped's speaking/muted branch ignores Claude's own voice
+    // bleeding back into the mic.
+    setState(muted ? "muted" : "speaking");
+    startQueueListening();
   };
 
   // Enqueue any completed sentences from the accumulating assistantText.
