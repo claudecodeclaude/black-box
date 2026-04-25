@@ -146,10 +146,13 @@ function stopDripping() {
 let readyChimeTimer = null;
 function startReadyChime() {
   if (readyChimeTimer) return;
-  if (document.visibilityState === "visible") playReadyChime();
+  // Don't play immediately here — callers explicitly play once when they
+  // want the "turn is over" signal. This only schedules the recurring
+  // 30-second reminder.
   readyChimeTimer = setInterval(() => {
     if (document.visibilityState !== "visible") return;
-    if (state !== "listening" || muted) return;
+    // Waiting for Jason in either plain listening OR muted-awaiting-unmute.
+    if (state !== "listening" && state !== "muted") return;
     playReadyChime();
   }, 30000);
 }
@@ -318,11 +321,9 @@ function setState(next) {
   stopBtn.disabled = next === "idle" || next === "error";
   muteBtn.disabled = next === "idle" || next === "error";
 
-  // The ready chime ("your turn to talk") replays every 30 seconds while
-  // we're idly listening for input — but only in true listening state.
-  if (next === "listening" && !muted) {
-    startReadyChime();
-  } else {
+  // Kill the 30-second ready-chime reminder whenever we leave the
+  // waiting-for-input states. sendTurn/doMute re-start it when appropriate.
+  if (next !== "listening" && next !== "muted") {
     stopReadyChime();
   }
 }
@@ -873,10 +874,12 @@ async function sendTurn(userText) {
     setState("muted");
     startQueueListening();
     playReadyChime(); // even when muted, signal "I'm done, your turn"
+    startReadyChime(); // recurring 30s reminder while he's still muted
     return;
   }
   startVoiceLoop();
   playReadyChime();
+  startReadyChime();
 
   // Drain anything the user said while we were busy. The recursive sendTurn
   // inside processTranscript will itself drain the rest, so a single shift is
