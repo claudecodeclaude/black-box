@@ -16,8 +16,10 @@ const logEl = $("log");
 const splashEl = $("splash");
 const stopBtn = $("stopBtn");
 const muteBtn = $("muteBtn");
+const orbEl = $("orb");
 
 let state = "idle";
+let stateChangedAt = Date.now();
 let currentTurn = null; // AbortController for /api/turn
 let wakeLock = null;
 let muted = false; // mic paused — call stays alive, nothing is transcribed
@@ -33,8 +35,8 @@ let recordingIsQueued = false;
 // window cancels the pending send and keeps buffering.
 let overBuffer = [];
 let sendTimer = null;
-const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend)[\s.!?,]*$/i;
-const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend)\b[\s.!?,]*$/i;
+const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|ten|and)[\s.!?,]*$/i;
+const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|ten|and)\b[\s.!?,]*$/i;
 const SEND_SILENCE_MS = 3000;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
@@ -61,6 +63,9 @@ const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 const SCRATCH_RE = /^\s*(scratch|scrap|scrash|crouch|crotch|preach|catch|pritch|scrash)\s*(that|this)?[\s.!?,]*$|^\s*(never\s*mind|cancel(\s+that)?|redo|start\s+over)[\s.!?,]*$/i;
 // "close call claude" — full stop, mic off, splash back up.
 const CLOSE_RE = /^\s*close\s+(call\s*)?(claude|clod|cloud|cloed|clawed)[\s.!?,]*$/i;
+// Last-resort recovery: tear the mic down and bring it back up without ending
+// the call. Doesn't reset the conversation or clear the buffer.
+const RESET_MIC_RE = /^\s*reset\s+(mic|mike|mick|mick\s+up)[\s.!?,]*$/i;
 
 // TTS voice — dynamic, client-side preference sent with each /api/speak call.
 let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
@@ -235,6 +240,45 @@ function doUnmute() {
   startVoiceLoop();
 }
 
+// Force-reset the mic and audio pipeline. Used by the orb tap (manual
+// recovery while driving) and the watchdog (auto-recovery from stuck states).
+async function forceMicReset(reason) {
+  console.warn("forceMicReset:", reason);
+  try { audioEl?.pause(); } catch {}
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  recordingIsQueued = false;
+  recordedChunks = [];
+  closeMic();
+  await new Promise((r) => setTimeout(r, 120));
+  const ok = await openMic();
+  if (!ok) return;
+  if (muted) {
+    setState("muted");
+    startQueueListening();
+  } else {
+    startVoiceLoop();
+  }
+  appendLine("assistant warning", "!", `mic reset (${reason})`);
+}
+
+// Watchdog: if a state we expect to be transient lingers too long, kick the
+// mic. Prevents the "I had to exit and reopen" recovery story.
+let watchdogTimer = null;
+function startWatchdog() {
+  if (watchdogTimer) return;
+  watchdogTimer = setInterval(() => {
+    if (state === "idle" || state === "error") return;
+    const stuckMs = Date.now() - stateChangedAt;
+    if ((state === "recording" || state === "transcribing") && stuckMs > 25_000) {
+      forceMicReset(`stuck in ${state} for ${Math.round(stuckMs/1000)}s`);
+    }
+  }, 5000);
+}
+function stopWatchdog() {
+  if (watchdogTimer) { clearInterval(watchdogTimer); watchdogTimer = null; }
+}
+
 function doClose() {
   playCommandBeep();
   setState("idle");
@@ -246,6 +290,7 @@ function doClose() {
   for (const el of queuedLineEls) el.remove();
   queuedLineEls = [];
   if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+  stopWatchdog();
   try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
@@ -306,6 +351,7 @@ let recordedChunks = [];
 let recordingMime = "audio/webm";
 
 function setState(next) {
+  if (state !== next) stateChangedAt = Date.now();
   state = next;
   document.body.className = `state-${next}`;
   const labels = {
@@ -501,18 +547,25 @@ function closeMic() {
 
 // ---------- VAD + recording ----------
 
-// Voice sustains energy; brief clicks/whooshes don't — so we gate on a few
-// sustained frames above threshold rather than raising the threshold too high
-// (which would miss soft speech). This tuning tries to keep sensitivity high
-// for Jason's voice while still rejecting transients.
-const SILENCE_THRESHOLD = 0.006; // RMS (0-1) — more sensitive for soft speech
-const SPEECH_START_FRAMES = 1;   // ~20ms — start recording on the very first
-                                 // above-threshold frame to minimize first-word
-                                 // clipping. Short blips still transcribe to
-                                 // junk which the annotation filter below tosses.
-const SILENCE_HANG_MS = 1200;    // stop after this much continuous silence
-const MIN_RECORDING_MS = 500;    // ignore too-short blips
-const MAX_RECORDING_MS = 20_000; // hard cap per utterance
+// Adaptive VAD: effective threshold = max(BASE, noiseFloor * MULTIPLIER).
+// In a quiet room the floor stays tiny so soft speech triggers; in a loud
+// car the floor adapts upward so engine/AC noise no longer triggers recording
+// or keeps it from stopping. The floor only updates while we're idle AND the
+// current sample is plausibly background, so Jason's voice doesn't drag the
+// floor up with it.
+const SILENCE_THRESHOLD = 0.006;        // BASE floor — never go below this
+const NOISE_FLOOR_MULTIPLIER = 2.4;     // speech must be ~2.4x ambient
+const NOISE_FLOOR_ALPHA = 0.02;         // EMA weight per ~20ms tick (~10s adapt)
+let noiseFloor = 0.005;                 // module-scoped: persists across mic
+                                        // restarts and recording cycles
+const SPEECH_START_FRAMES = 1;          // ~20ms above threshold triggers record
+const SILENCE_HANG_MS = 1200;           // stop after this much continuous silence
+const MIN_RECORDING_MS = 500;           // ignore too-short blips
+const MAX_RECORDING_MS = 20_000;        // hard cap per utterance
+
+function effectiveThreshold() {
+  return Math.max(SILENCE_THRESHOLD, noiseFloor * NOISE_FLOOR_MULTIPLIER);
+}
 
 // Whisper tags non-speech audio with annotations like "[BLANK_AUDIO]",
 // "[MUSIC PLAYING]", "(clapping)", "[LAUGHTER]". Strip them so they never
@@ -570,6 +623,13 @@ function setupVAD({ queued }) {
 
   vadTimer = setInterval(() => {
     if (!analyser) return;
+    // iOS Safari sometimes suspends the AudioContext (during long sessions,
+    // backgrounding, or audio-session category flips for TTS). When suspended,
+    // getByteTimeDomainData returns silence and the mic looks dead. Resume
+    // preemptively every tick — cheap when not suspended.
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume().catch(() => {});
+    }
     analyser.getByteTimeDomainData(buf);
     let sumSq = 0;
     for (let i = 0; i < buf.length; i++) {
@@ -578,9 +638,16 @@ function setupVAD({ queued }) {
     }
     const rms = Math.sqrt(sumSq / buf.length);
     const now = Date.now();
+    const threshold = effectiveThreshold();
 
     if (!recording) {
-      if (rms > SILENCE_THRESHOLD) {
+      // Adapt the noise floor only when we're below threshold (clearly
+      // ambient). The EMA pulls the floor toward sustained background noise
+      // without letting Jason's voice drag it up.
+      if (rms < threshold) {
+        noiseFloor = noiseFloor * (1 - NOISE_FLOOR_ALPHA) + rms * NOISE_FLOOR_ALPHA;
+      }
+      if (rms > threshold) {
         aboveCount++;
         if (aboveCount >= SPEECH_START_FRAMES) {
           recording = true;
@@ -605,7 +672,7 @@ function setupVAD({ queued }) {
       return;
     }
 
-    if (rms > SILENCE_THRESHOLD) lastSoundAt = now;
+    if (rms > threshold) lastSoundAt = now;
 
     const elapsed = now - recordingStartedAt;
     const silent = now - lastSoundAt;
@@ -932,6 +999,7 @@ splashEl.addEventListener("click", (ev) => {
       if (!ok) return; // openMic already set error state
       await acquireWakeLock();
       startVoiceLoop();
+      startWatchdog();
     } catch (err) {
       console.error("start failed", err);
       setState("error");
@@ -939,6 +1007,15 @@ splashEl.addEventListener("click", (ev) => {
     }
   })();
 });
+
+// Tap the orb to manually force a mic reset — handy if the VAD got stuck.
+if (orbEl) {
+  orbEl.addEventListener("click", () => {
+    if (state === "idle" || state === "error") return;
+    forceMicReset("orb tap");
+  });
+  orbEl.style.cursor = "pointer";
+}
 
 stopBtn.addEventListener("click", () => {
   // Fire-and-forget: ask Claude to drop a session memory note before we tear
@@ -957,6 +1034,7 @@ stopBtn.addEventListener("click", () => {
   for (const el of queuedLineEls) el.remove();
   queuedLineEls = [];
   stopDripping();
+  stopWatchdog();
   try { audioEl?.pause(); } catch {}
   try { currentTurn?.abort(); } catch {}
   closeMic();
