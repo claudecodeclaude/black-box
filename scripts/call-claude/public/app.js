@@ -124,7 +124,7 @@ function startDripping() {
   dripTimer = setInterval(() => {
     if (document.visibilityState !== "visible") return;
     playDrip();
-  }, 3000);
+  }, 5000);
 }
 
 function stopDripping() {
