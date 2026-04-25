@@ -539,8 +539,11 @@ function smoothBufferPiece(text, hasPrior) {
 }
 
 function startVoiceLoop() {
-  if (vadTimer) return; // already listening — don't disturb whatever state set
+  // Always flip to "listening" so the ready-chime hook fires and the drip
+  // doesn't carry over from a prior speaking phase. The VAD itself is set
+  // up only if the timer isn't already running.
   setState("listening");
+  if (vadTimer) return;
   setupVAD({ queued: false });
 }
 
