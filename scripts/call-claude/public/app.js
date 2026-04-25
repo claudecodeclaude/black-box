@@ -484,6 +484,7 @@ function smoothBufferPiece(text, hasPrior) {
 }
 
 function startVoiceLoop() {
+  if (vadTimer) return; // already listening — don't disturb whatever state set
   setState("listening");
   setupVAD({ queued: false });
 }
@@ -557,18 +558,24 @@ function setupVAD({ queued }) {
 }
 
 async function onRecordingStopped() {
-  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  // Snapshot this recording's state immediately so the live VAD timer can
+  // safely start a new recording (which would overwrite the globals) while
+  // we transcribe in the background.
   const wasQueued = recordingIsQueued;
   recordingIsQueued = false;
+  const chunks = recordedChunks;
+  recordedChunks = [];
   if (state === "idle") return;
-  if (!recordedChunks.length) {
+  if (!chunks.length) {
     resumeVadForContext(wasQueued);
     return;
   }
 
-  if (!wasQueued && !muted) setState("transcribing");
-  const blob = new Blob(recordedChunks, { type: recordingMime || "audio/webm" });
-  recordedChunks = [];
+  // Don't override "thinking"/"speaking"/"recording" with "transcribing" —
+  // those are set by other code paths and the VAD may already be capturing
+  // a new utterance.
+  if (state === "listening") setState("transcribing");
+  const blob = new Blob(chunks, { type: recordingMime || "audio/webm" });
 
   let text = "";
   try {
