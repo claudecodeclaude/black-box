@@ -682,24 +682,46 @@ async function sendTurn(userText) {
   let assistantText = "";
   let lastSpokenIdx = 0;
   let micClosedForSpeech = false;
+  let streamDone = false;
   const ttsQueue = [];
   let ttsRunner = null;
 
+  // While the model is still streaming text, drip during gaps between TTS
+  // sentences so Jason hears something is happening even when no chunk is
+  // ready to speak yet. Stop dripping once a chunk is actually playing.
   const runTTSQueue = async () => {
-    while (ttsQueue.length) {
+    while (true) {
+      if (ttsQueue.length === 0) {
+        if (streamDone) {
+          ttsRunner = null;
+          return;
+        }
+        startDripping();
+        await new Promise((r) => setTimeout(r, 80));
+        continue;
+      }
+      stopDripping();
       const chunk = ttsQueue.shift();
       try { await speak(chunk); } catch (e) { console.warn("speak failed", e); }
     }
-    ttsRunner = null;
   };
 
   const ensureMicClosedForSpeech = () => {
     if (micClosedForSpeech) return;
     micClosedForSpeech = true;
-    if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
-    closeMic();
     stopDripping(); // TTS is about to play — no more drip
-    setState("speaking");
+    if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+    if (muted) {
+      // Keep the mic open during TTS so Jason can voice-"unmute" mid-talk.
+      // Captured audio is discarded by the muted branch in onRecordingStopped
+      // unless it matches UNMUTE_RE. forceSpeakerRouting() in speak() keeps
+      // iOS from sending TTS to the earpiece while the mic is open.
+      setState("muted");
+      startQueueListening();
+    } else {
+      closeMic();
+      setState("speaking");
+    }
   };
 
   // Enqueue any completed sentences from the accumulating assistantText.
@@ -771,6 +793,9 @@ async function sendTurn(userText) {
     ttsQueue.push(tailSpoken);
     if (!ttsRunner) ttsRunner = runTTSQueue();
   }
+  // Signal to the TTS runner that no more chunks will arrive — once the
+  // queue drains it can exit instead of polling for more.
+  streamDone = true;
 
   if (ttsRunner) await ttsRunner;
   stopDripping(); // belt-and-suspenders for edge cases (no TTS emitted, errors, etc)
