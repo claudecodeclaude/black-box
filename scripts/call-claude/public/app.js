@@ -343,6 +343,19 @@ function forceSpeakerRouting() {
   } catch {}
 }
 
+// Counterpart to forceSpeakerRouting — must run BEFORE getUserMedia, because
+// iOS Safari throws InvalidStateError if you call getUserMedia while the
+// audio session is locked into "playback". play-and-record allows mic
+// capture and still plays audio (out the earpiece by default — speak() flips
+// it back to playback right before TTS).
+function prepareAudioSessionForMic() {
+  try {
+    if (typeof navigator !== "undefined" && navigator.audioSession) {
+      navigator.audioSession.type = "play-and-record";
+    }
+  } catch {}
+}
+
 async function speak(text) {
   if (!text) return;
   forceSpeakerRouting();
@@ -380,6 +393,7 @@ async function speak(text) {
 
 async function openMic() {
   if (micStream) return true;
+  prepareAudioSessionForMic();
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -797,8 +811,11 @@ splashEl.addEventListener("click", (ev) => {
   // Prime the FX AudioContext so drip/beep sounds can play without another
   // user gesture.
   ensureFxCtx();
-  // Tell iOS we primarily want to play audio back (speaker), not record.
-  forceSpeakerRouting();
+  // Pre-arm the audio session for mic capture. Setting "playback" here was
+  // the original intent (route TTS to speaker), but it makes the upcoming
+  // getUserMedia throw InvalidStateError on iOS — speak() flips back to
+  // playback when TTS is about to play.
+  prepareAudioSessionForMic();
 
   splashEl.classList.add("hidden");
   stateEl.textContent = "requesting mic...";
