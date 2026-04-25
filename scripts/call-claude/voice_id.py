@@ -12,6 +12,7 @@
 import sys
 import json
 import os
+import contextlib
 from pathlib import Path
 
 REF_PATH = Path.home() / ".call-claude" / "voice-id" / "reference.npy"
@@ -19,8 +20,12 @@ DEFAULT_THRESHOLD = float(os.environ.get("CALL_CLAUDE_VOICE_THRESHOLD", "0.62"))
 
 def _encoder():
     # Lazy import so a missing dep gives a clean error message.
+    # Resemblyzer prints "Loaded the voice encoder model on cpu in Xs" to
+    # stdout on construction; we redirect that to stderr so the JSON we emit
+    # at the end of enroll/verify is the only thing on stdout.
     from resemblyzer import VoiceEncoder
-    return VoiceEncoder()
+    with contextlib.redirect_stdout(sys.stderr):
+        return VoiceEncoder()
 
 def enroll(wav_path):
     import numpy as np
