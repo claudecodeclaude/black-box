@@ -39,9 +39,20 @@ const SEND_SILENCE_MS = 3000;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
 const MUTE_RE = /^\s*(mute|moot|meut|mewt)(\s+mic)?[\s.!?,]*$/i;
-// Whisper mangles 'unmute' a lot — accept common mishears and dropped/added
-// prefixes so the voice command actually triggers.
-const UNMUTE_RE = /^\s*(un-?\s*(mute|moot|meut|muted)|on\s+(mute|moot|meut)|and\s+(mute|moot|meet|meet)|in\s+(mute|moot)|hum\s*mute|on\s*moot)(\s+mic)?[\s.!?,]*$/i;
+// Whisper mangles 'unmute' badly, especially while Claude's TTS is bleeding
+// into the mic. Use a permissive check: if a short utterance contains any
+// recognizable "unmute" token, treat it as the command.
+const UNMUTE_TOKEN_RE = /\b(un-?\s*(mute|moot|meut|muted)|unboot|unmuet|on\s+(mute|moot|meut)|and\s+(mute|moot|meet)|in\s+(mute|moot)|hum\s*mute|on\s*moot)\b/i;
+function looksLikeUnmute(text) {
+  if (!text) return false;
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  // Reject anything substantially longer than the actual command — keeps the
+  // permissive match from false-firing inside long sentences.
+  const wordCount = t.split(/\s+/).length;
+  if (wordCount > 6) return false;
+  return UNMUTE_TOKEN_RE.test(t);
+}
 const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 // Clear the current over-mode buffer without sending — used when Whisper
 // misheard something mid-sentence and Jason wants to restart.
@@ -151,18 +162,22 @@ function playReadyChime() {
   if (!ctx) return;
   try {
     const t0 = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    // High two-tone "I'm ready for you" bell.
-    osc.frequency.setValueAtTime(1320, t0);
-    osc.frequency.setValueAtTime(1760, t0 + 0.06);
-    gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(0.16, t0 + 0.012);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + 0.2);
+    // Play five short chimes in quick succession (~1.1s total) so Jason
+    // hears the "your turn" cue clearly even with road noise.
+    for (let i = 0; i < 5; i++) {
+      const t = t0 + i * 0.22;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1320, t);
+      osc.frequency.setValueAtTime(1760, t + 0.06);
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.16, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
   } catch {}
 }
 
@@ -641,7 +656,7 @@ async function onRecordingStopped() {
   // can interject with mute/unmute/close commands, but Claude's own TTS
   // bleeding back into the mic must not be processed as a real turn.)
   if (muted || state === "speaking") {
-    if (UNMUTE_RE.test(text)) { doUnmute(); return; }
+    if (looksLikeUnmute(text)) { doUnmute(); return; }
     if (CLOSE_RE.test(text)) { doClose(); return; }
     resumeVadForContext(wasQueued);
     return;
