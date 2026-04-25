@@ -608,11 +608,21 @@ let noiseFloor = 0.005;                 // module-scoped: persists across mic
                                         // restarts and recording cycles
 const SPEECH_START_FRAMES = 1;          // ~20ms above threshold triggers record
 const SILENCE_HANG_MS = 1200;           // stop after this much continuous silence
+const SILENCE_HANG_MS_MUTED = 500;      // shorter hang while muted so the
+                                        // 'unmute' command fires snappily
+function effectiveSilenceHang() {
+  return muted ? SILENCE_HANG_MS_MUTED : SILENCE_HANG_MS;
+}
 const MIN_RECORDING_MS = 500;           // ignore too-short blips
 const MAX_RECORDING_MS = 20_000;        // hard cap per utterance
 
+// While muted, drop the multiplier so a quietly-spoken "unmute" still trips
+// the threshold. Voice-ID verification on the server still rejects passenger
+// audio, so the looser bar doesn't open up false unmutes.
+const NOISE_FLOOR_MULTIPLIER_MUTED = 1.5;
 function effectiveThreshold() {
-  return Math.max(SILENCE_THRESHOLD, noiseFloor * NOISE_FLOOR_MULTIPLIER);
+  const mult = muted ? NOISE_FLOOR_MULTIPLIER_MUTED : NOISE_FLOOR_MULTIPLIER;
+  return Math.max(SILENCE_THRESHOLD, noiseFloor * mult);
 }
 
 // Whisper tags non-speech audio with annotations like "[BLANK_AUDIO]",
@@ -797,7 +807,7 @@ function setupVAD({ queued }) {
 
     const elapsed = now - recordingStartedAt;
     const silent = now - lastSoundAt;
-    if ((silent > SILENCE_HANG_MS && elapsed > MIN_RECORDING_MS) || elapsed > MAX_RECORDING_MS) {
+    if ((silent > effectiveSilenceHang() && elapsed > MIN_RECORDING_MS) || elapsed > MAX_RECORDING_MS) {
       stopRec();
     }
   }, 20);
