@@ -388,7 +388,12 @@ let recordedChunks = [];
 let recordingMime = "audio/webm";
 
 function setState(next) {
-  if (state !== next) stateChangedAt = Date.now();
+  // Update on every call, not just on value changes — so continuous activity
+  // (e.g. the VAD setting state to "recording" repeatedly across back-to-back
+  // recordings) keeps the watchdog timer fresh. Without this, stateChangedAt
+  // froze at the first recording's start and the watchdog falsely flagged
+  // "stuck in recording" after 25s of normal continuous talking.
+  stateChangedAt = Date.now();
   state = next;
   document.body.className = `state-${next}`;
   const labels = {
