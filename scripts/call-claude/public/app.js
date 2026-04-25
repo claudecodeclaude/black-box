@@ -38,7 +38,9 @@ const OVER_RE = /^\s*(over|hoover|thor|rover|clover|oever|ova|ower|o-?ver|oh-?ve
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
 const MUTE_RE = /^\s*(mute|moot|meut|mewt)(\s+mic)?[\s.!?,]*$/i;
-const UNMUTE_RE = /^\s*(un-?\s*(mute|moot|meut))(\s+mic)?[\s.!?,]*$/i;
+// Whisper mangles 'unmute' a lot — accept common mishears and dropped/added
+// prefixes so the voice command actually triggers.
+const UNMUTE_RE = /^\s*(un-?\s*(mute|moot|meut|muted)|on\s+(mute|moot|meut)|and\s+(mute|moot|meet|meet)|in\s+(mute|moot)|hum\s*mute|on\s*moot)(\s+mic)?[\s.!?,]*$/i;
 const NEW_CONV_RE = /^\s*new\s+conversation[\s.!?,]*$/i;
 // Clear the current over-mode buffer without sending — used when Whisper
 // misheard something mid-sentence and Jason wants to restart.
@@ -107,11 +109,11 @@ function playDrip() {
     osc.frequency.setValueAtTime(700, t0);
     osc.frequency.exponentialRampToValueAtTime(240, t0 + 0.09);
     gain.gain.setValueAtTime(0, t0);
-    gain.gain.linearRampToValueAtTime(0.09, t0 + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    gain.gain.linearRampToValueAtTime(0.22, t0 + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
     osc.connect(gain).connect(ctx.destination);
     osc.start(t0);
-    osc.stop(t0 + 0.14);
+    osc.stop(t0 + 0.16);
   } catch {}
 }
 
