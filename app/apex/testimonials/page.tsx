@@ -214,10 +214,10 @@ export default function TestimonialsPage() {
     <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 20px 80px" }}>
       <div style={{ marginBottom: 20 }}>
         <Link
-          href="/"
+          href="/apex-app"
           style={{ color: "var(--muted)", fontSize: 14, textDecoration: "none" }}
         >
-          ← Black Box
+          ← Apex App
         </Link>
       </div>
 

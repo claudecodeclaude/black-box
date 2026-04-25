@@ -70,10 +70,10 @@ export default function QRPage() {
     <main style={{ maxWidth: 480, margin: "0 auto", padding: "32px 20px" }}>
       <div style={{ marginBottom: 24 }}>
         <Link
-          href="/"
+          href="/apex-app"
           style={{ color: "var(--accent)", fontSize: 15, fontWeight: 600, textDecoration: "none" }}
         >
-          ← Black Box
+          ← Apex App
         </Link>
       </div>
 

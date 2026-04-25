@@ -12,10 +12,10 @@ export default function RedditAdsPage() {
   return (
     <main style={{ maxWidth: 640, margin: "0 auto", padding: "32px 20px 64px" }}>
       <Link
-        href="/"
+        href="/apex-app"
         style={{ fontSize: 13, color: "var(--muted)", textDecoration: "none" }}
       >
-        ← Back
+        ← Apex App
       </Link>
 
       <div style={{ marginTop: 24, marginBottom: 20 }}>
