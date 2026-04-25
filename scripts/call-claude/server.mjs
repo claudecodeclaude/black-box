@@ -60,6 +60,11 @@ const SAY_VOICE = process.env.CALL_CLAUDE_VOICE || "Samantha";
 const PIPER_BIN = process.env.CALL_CLAUDE_PIPER || "/Users/jasonslagel/.call-claude/piper-venv/bin/piper";
 const PIPER_MODEL = process.env.CALL_CLAUDE_PIPER_MODEL || "/Users/jasonslagel/.call-claude/piper-voices/en_US-ryan-high.onnx";
 const PIPER_AVAILABLE = fs.existsSync(PIPER_BIN) && fs.existsSync(PIPER_MODEL);
+// Voice-print verification — Resemblyzer in a Python venv.
+const VOICE_ID_PYTHON = process.env.CALL_CLAUDE_VOICE_PYTHON || "/Users/jasonslagel/.call-claude/voice-id-venv/bin/python";
+const VOICE_ID_SCRIPT = process.env.CALL_CLAUDE_VOICE_SCRIPT || path.join(__dirname, "voice_id.py");
+const VOICE_ID_REF = path.join(STATE_DIR, "voice-id", "reference.npy");
+const VOICE_ID_AVAILABLE = fs.existsSync(VOICE_ID_PYTHON) && fs.existsSync(VOICE_ID_SCRIPT);
 
 const SYSTEM_PROMPT = `You are Claude speaking with Jason hands-free while he drives. Your responses will be read aloud by text-to-speech.
 
@@ -274,14 +279,82 @@ async function handleTranscribe(req, res) {
       text = stdout.trim();
     }
     const ms = Date.now() - t0;
-    log(`transcribed ${audio.length}B in ${ms}ms: ${text.slice(0, 80)}`);
-    sendJson(res, 200, { text, ms });
+
+    // Voice-print verification (only if a reference embedding has been
+    // enrolled). Pass-through everything when not configured / no reference.
+    let isJason = true;
+    let similarity = null;
+    if (VOICE_ID_AVAILABLE && fs.existsSync(VOICE_ID_REF)) {
+      try {
+        const { stdout: vidOut } = await execFileAsync(
+          VOICE_ID_PYTHON,
+          [VOICE_ID_SCRIPT, "verify", wavPath],
+          { maxBuffer: 4 * 1024 * 1024 }
+        );
+        const j = JSON.parse(vidOut.trim());
+        isJason = !!j.isJason;
+        similarity = typeof j.similarity === "number" ? j.similarity : null;
+      } catch (e) {
+        log(`voice-id verify failed: ${e.message || e}`);
+      }
+    }
+
+    log(`transcribed ${audio.length}B in ${ms}ms (jason=${isJason}, sim=${similarity?.toFixed(3) ?? "n/a"}): ${text.slice(0, 80)}`);
+    sendJson(res, 200, { text, ms, isJason, similarity });
   } catch (e) {
     log(`transcribe error: ${e.message || e}`);
     sendJson(res, 500, { error: String(e.message || e) });
   } finally {
     cleanup();
   }
+}
+
+async function handleVoiceEnroll(req, res) {
+  if (!VOICE_ID_AVAILABLE) {
+    return sendJson(res, 500, { error: "voice-id not installed" });
+  }
+  let audio;
+  try { audio = await readRawBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  if (!audio.length) return sendJson(res, 400, { error: "empty body" });
+
+  const id = randomUUID();
+  const tmpDir = os.tmpdir();
+  const inputExt = (req.headers["content-type"] || "").includes("webm") ? "webm" : "m4a";
+  const inputPath = path.join(tmpDir, `voice-enroll-${id}.${inputExt}`);
+  const wavPath = path.join(tmpDir, `voice-enroll-${id}.wav`);
+  fs.writeFileSync(inputPath, audio);
+  const cleanup = () => {
+    for (const p of [inputPath, wavPath]) { try { fs.unlinkSync(p); } catch {} }
+  };
+  try {
+    await execFileAsync(FFMPEG_BIN, [
+      "-y", "-i", inputPath,
+      "-ar", "16000", "-ac", "1", "-f", "wav",
+      wavPath,
+    ]);
+    const { stdout } = await execFileAsync(
+      VOICE_ID_PYTHON,
+      [VOICE_ID_SCRIPT, "enroll", wavPath],
+      { maxBuffer: 4 * 1024 * 1024 }
+    );
+    const j = JSON.parse(stdout.trim());
+    if (!j.ok) return sendJson(res, 400, { error: j.error || "enroll failed" });
+    log(`voice-id enrolled (audio=${audio.length}B)`);
+    sendJson(res, 200, { ok: true, dim: j.embedding_dim });
+  } catch (e) {
+    log(`voice-id enroll error: ${e.message || e}`);
+    sendJson(res, 500, { error: String(e.message || e) });
+  } finally {
+    cleanup();
+  }
+}
+
+function handleVoiceStatus(_req, res) {
+  sendJson(res, 200, {
+    available: VOICE_ID_AVAILABLE,
+    enrolled: fs.existsSync(VOICE_ID_REF),
+  });
 }
 
 function handleHealth(_req, res) {
@@ -413,6 +486,8 @@ const handler = async (req, res) => {
     if (req.method === "POST" && url === "/api/reset") return handleReset(req, res);
     if (req.method === "POST" && url === "/api/transcribe") return handleTranscribe(req, res);
     if (req.method === "POST" && url === "/api/speak") return handleSpeak(req, res);
+    if (req.method === "POST" && url === "/api/voice-enroll") return handleVoiceEnroll(req, res);
+    if (req.method === "GET"  && url === "/api/voice-status") return handleVoiceStatus(req, res);
     if (req.method === "GET"  && url === "/api/health") return handleHealth(req, res);
     if (req.method === "GET"  && url === "/api/version") {
       res.writeHead(200, {

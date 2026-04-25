@@ -16,6 +16,7 @@ const logEl = $("log");
 const splashEl = $("splash");
 const stopBtn = $("stopBtn");
 const muteBtn = $("muteBtn");
+const enrollBtn = $("enrollBtn");
 const orbEl = $("orb");
 
 let state = "idle";
@@ -35,8 +36,8 @@ let recordingIsQueued = false;
 // window cancels the pending send and keeps buffering.
 let overBuffer = [];
 let sendTimer = null;
-const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|ten|and)[\s.!?,]*$/i;
-const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|ten|and)\b[\s.!?,]*$/i;
+const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|sand|ten|and)[\s.!?,]*$/i;
+const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|sand|ten|and)\b[\s.!?,]*$/i;
 const SEND_SILENCE_MS = 3000;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
@@ -66,6 +67,17 @@ const CLOSE_RE = /^\s*close\s+(call\s*)?(claude|clod|cloud|cloed|clawed)[\s.!?,]
 // Last-resort recovery: tear the mic down and bring it back up without ending
 // the call. Doesn't reset the conversation or clear the buffer.
 const RESET_MIC_RE = /^\s*reset\s+(mic|mike|mick|mick\s+up)[\s.!?,]*$/i;
+
+// Voice edit commands — short standalone utterances that modify the pending
+// over-mode buffer instead of being added to it.
+const EDIT_LAST_SENTENCE_RE = /^\s*(delete|remove|erase|drop)\s+(that|the)?\s*last\s+sentence[\s.!?,]*$/i;
+const EDIT_LAST_WORD_RE = /^\s*(delete|remove|erase|drop)\s+(that|the)?\s*last\s+word[\s.!?,]*$/i;
+const EDIT_LAST_N_WORDS_RE = /^\s*(delete|remove|erase|drop)\s+(that|the)?\s*last\s+(\d+|two|three|four|five|six|seven|eight|nine|ten|twenty)\s+words?[\s.!?,]*$/i;
+const EDIT_CLEAR_RE = /^\s*(delete|clear|erase)\s+(everything|all|all\s+of\s+(it|that))[\s.!?,]*$/i;
+const NUM_WORDS = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twenty: 20 };
+function parseSpokenInt(s) {
+  return NUM_WORDS[s.toLowerCase()] || parseInt(s, 10) || 1;
+}
 
 // TTS voice — dynamic, client-side preference sent with each /api/speak call.
 let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
@@ -211,18 +223,22 @@ function doMute({ silent = false } = {}) {
   muteBtn.setAttribute("aria-pressed", "true");
   muteBtn.textContent = "unmute mic";
   if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
-  queuedTurns = [];
-  overBuffer = [];
-  for (const el of queuedLineEls) el.remove();
-  queuedLineEls = [];
-  if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+  // Auto-mute (after send commits) clears the buffer because the turn already
+  // fired with that text. Manual mute preserves the buffer + pending line so
+  // Jason can finish a thought after unmuting.
+  if (silent) {
+    queuedTurns = [];
+    overBuffer = [];
+    for (const el of queuedLineEls) el.remove();
+    queuedLineEls = [];
+    if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
+  }
   setState("muted");
   if (!silent) {
     playCommandBeep();
     appendLine("assistant warning", "!", "muted — say unmute to resume");
   }
-  // Keep the mic open in both silent (auto) and manual mute so voice unmute
-  // responds at any time — including during Claude's TTS playback.
+  // Keep the mic open so voice unmute responds at any time.
   // forceSpeakerRouting() handles iOS audio routing.
   startQueueListening();
 }
@@ -385,6 +401,7 @@ function setState(next) {
   stateEl.textContent = next === "muted" ? "muted — tap unmute" : (labels[next] || next);
   stopBtn.disabled = next === "idle" || next === "error";
   muteBtn.disabled = next === "idle" || next === "error";
+  enrollBtn.disabled = next === "idle" || next === "error";
 
   // Kill the 30-second ready-chime reminder whenever we leave the
   // waiting-for-input states. sendTurn/doMute re-start it when appropriate.
@@ -610,6 +627,79 @@ function smoothBufferPiece(text, hasPrior) {
   return t;
 }
 
+// --- Buffer edit helpers (driven by voice edit commands or tap-to-edit) ----
+
+function bufferText() { return overBuffer.join(" "); }
+
+function setBufferText(text) {
+  const trimmed = (text || "").trim();
+  overBuffer = trimmed ? [trimmed] : [];
+  if (!pendingUserLine) {
+    if (trimmed) pendingUserLine = appendLine("user pending", "you", trimmed);
+  } else if (!trimmed) {
+    pendingUserLine.remove();
+    pendingUserLine = null;
+  } else {
+    setLineText(pendingUserLine, trimmed);
+  }
+}
+
+function deleteLastSentence() {
+  const t = bufferText();
+  if (!t) return false;
+  // Split into sentence-ish chunks. The last entry is the trailing fragment;
+  // dropping it removes "the last sentence" whether or not Whisper added a
+  // final period.
+  const parts = t.match(/[^.!?]+[.!?]+\s*|[^.!?]+$/g) || [];
+  if (parts.length === 0) return false;
+  parts.pop();
+  setBufferText(parts.join("").trim());
+  return true;
+}
+
+function deleteLastWords(n) {
+  const t = bufferText();
+  if (!t) return false;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  words.splice(Math.max(0, words.length - n));
+  setBufferText(words.join(" "));
+  return true;
+}
+
+function tryApplyEditCommand(text) {
+  if (EDIT_LAST_SENTENCE_RE.test(text)) {
+    if (deleteLastSentence()) {
+      playCommandBeep();
+      appendLine("assistant warning", "!", "deleted the last sentence");
+    }
+    return true;
+  }
+  if (EDIT_LAST_WORD_RE.test(text)) {
+    if (deleteLastWords(1)) {
+      playCommandBeep();
+      appendLine("assistant warning", "!", "deleted the last word");
+    }
+    return true;
+  }
+  const m = EDIT_LAST_N_WORDS_RE.exec(text);
+  if (m) {
+    const n = parseSpokenInt(m[3]);
+    if (deleteLastWords(n)) {
+      playCommandBeep();
+      appendLine("assistant warning", "!", `deleted the last ${n} words`);
+    }
+    return true;
+  }
+  if (EDIT_CLEAR_RE.test(text)) {
+    setBufferText("");
+    playCommandBeep();
+    appendLine("assistant warning", "!", "cleared everything");
+    return true;
+  }
+  return false;
+}
+
 function startVoiceLoop() {
   // Always flip to "listening" so the ready-chime hook fires and the drip
   // doesn't carry over from a prior speaking phase. The VAD itself is set
@@ -722,6 +812,7 @@ async function onRecordingStopped() {
   const blob = new Blob(chunks, { type: recordingMime || "audio/webm" });
 
   let text = "";
+  let isJason = true;
   try {
     const res = await fetch("/api/transcribe", {
       method: "POST",
@@ -731,9 +822,18 @@ async function onRecordingStopped() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     text = cleanTranscript(json.text || "");
+    if (typeof json.isJason === "boolean") isJason = json.isJason;
   } catch (err) {
     console.error("transcribe failed", err);
     text = "";
+  }
+
+  // Voice-print gate: drop chunks that aren't Jason's voice (passenger,
+  // GPS, music, TV in the background). When no reference is enrolled, the
+  // server returns isJason=true and this is a no-op.
+  if (!isJason) {
+    resumeVadForContext(wasQueued);
+    return;
   }
 
   if (!text || text.length < 2) {
@@ -801,6 +901,12 @@ async function processTranscript(text) {
   // Any new speech cancels a pending send timer (Jason kept talking).
   if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
 
+  // Voice edit commands modify the buffer in place and DON'T get added to it.
+  if (tryApplyEditCommand(text)) {
+    if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
+    return;
+  }
+
   const endsWithSend = SEND_TAIL_RE.test(text);
   const cleaned = endsWithSend ? text.replace(SEND_STRIP_RE, "").trim() : text;
 
@@ -810,6 +916,7 @@ async function processTranscript(text) {
     const combined = overBuffer.join(" ");
     if (!pendingUserLine) {
       pendingUserLine = appendLine("user pending", "you");
+      makePendingLineEditable(pendingUserLine);
     }
     setLineText(pendingUserLine, combined);
   }
@@ -822,6 +929,29 @@ async function processTranscript(text) {
   }
 
   if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
+}
+
+// --- Tap-to-edit on the pending user line ---------------------------------
+// Make the body of pendingUserLine contenteditable so Jason can manually
+// fix transcription mistakes if he's stopped at a light. Voice still flows
+// through processTranscript and overwrites via setLineText, so manual edits
+// during active dictation will get clobbered — fine for now.
+function makePendingLineEditable(line) {
+  const body = line?.querySelector(".body");
+  if (!body) return;
+  body.setAttribute("contenteditable", "true");
+  body.setAttribute("spellcheck", "true");
+  body.style.outline = "none";
+  body.style.cursor = "text";
+  body.addEventListener("input", () => {
+    const text = body.textContent;
+    overBuffer = text.trim() ? [text] : [];
+  });
+  // Tapping the line also pauses the auto-send if one is pending — Jason
+  // probably wants to edit before letting it fire.
+  body.addEventListener("focus", () => {
+    if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
+  });
 }
 
 // ---------- Claude turn ----------
@@ -1084,6 +1214,74 @@ muteBtn.addEventListener("click", () => {
   if (state === "idle" || state === "error") return;
   if (!muted) doMute();
   else doUnmute();
+});
+
+// --- Voice-print enrollment ----------------------------------------------
+// Records ~15 seconds while Jason reads anything aloud, then ships it to
+// /api/voice-enroll. After enrollment, every /api/transcribe response will
+// include {isJason, similarity} and non-Jason chunks get dropped silently
+// in onRecordingStopped.
+let enrolling = false;
+enrollBtn.addEventListener("click", async () => {
+  if (enrolling || state === "idle" || state === "error") return;
+  if (!micStream) {
+    appendLine("assistant warning", "!", "mic not open — try after start");
+    return;
+  }
+  enrolling = true;
+  enrollBtn.disabled = true;
+  enrollBtn.textContent = "recording 15s...";
+  appendLine("assistant warning", "!", "recording 15 seconds for voice enrollment — please read or talk continuously");
+
+  // Pause VAD/recording loop so it doesn't fight the enrollment recorder.
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+
+  const chunks = [];
+  let recorder;
+  try {
+    recorder = new MediaRecorder(micStream, recordingMime ? { mimeType: recordingMime } : {});
+  } catch (e) {
+    appendLine("assistant warning", "!", `enroll failed: ${e.message || e}`);
+    enrolling = false;
+    enrollBtn.disabled = false;
+    enrollBtn.textContent = "enroll voice";
+    if (state !== "idle" && !muted && analyser) startVoiceLoop();
+    return;
+  }
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = async () => {
+    const blob = new Blob(chunks, { type: recordingMime || "audio/webm" });
+    try {
+      const res = await fetch("/api/voice-enroll", {
+        method: "POST",
+        headers: { "Content-Type": blob.type },
+        body: blob,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        appendLine("assistant warning", "!", "voice enrolled — only your voice will trigger turns now");
+        playCommandBeep();
+      } else {
+        appendLine("assistant warning", "!", `enroll error: ${json.error || res.status}`);
+      }
+    } catch (err) {
+      appendLine("assistant warning", "!", `enroll fetch failed: ${err.message || err}`);
+    } finally {
+      enrolling = false;
+      enrollBtn.disabled = false;
+      enrollBtn.textContent = "enroll voice";
+      if (state !== "idle" && !muted && analyser) startVoiceLoop();
+    }
+  };
+  try { recorder.start(); }
+  catch (e) {
+    appendLine("assistant warning", "!", `recorder start failed: ${e.message || e}`);
+    enrolling = false;
+    enrollBtn.disabled = false;
+    enrollBtn.textContent = "enroll voice";
+    return;
+  }
+  setTimeout(() => { try { recorder.stop(); } catch {} }, 15_000);
 });
 
 setState("idle");
