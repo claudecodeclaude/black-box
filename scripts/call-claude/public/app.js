@@ -893,7 +893,7 @@ function commitSendBuffer() {
   pendingUserLine = null;
   if (!finalText) {
     if (committedLine) committedLine.remove();
-    if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
+    if (state !== "idle" && !muted) startVoiceLoop();
     return;
   }
   committedLine.classList.remove("pending");
@@ -910,7 +910,7 @@ async function processTranscript(text) {
 
   // Voice edit commands modify the buffer in place and DON'T get added to it.
   if (tryApplyEditCommand(text)) {
-    if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
+    if (state !== "idle" && !muted) startVoiceLoop();
     return;
   }
 
@@ -935,7 +935,7 @@ async function processTranscript(text) {
     }, SEND_SILENCE_MS);
   }
 
-  if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
+  if (state !== "idle" && !muted) startVoiceLoop();
 }
 
 // --- Tap-to-edit on the pending user line ---------------------------------
