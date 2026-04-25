@@ -891,3 +891,81 @@ muteBtn.addEventListener("click", () => {
 });
 
 setState("idle");
+
+// ---------- auto-reload on server update ----------
+//
+// On cold open, compare window.__BUILD_VERSION (injected into the HTML by
+// server.mjs at request time) against /api/version. If iOS handed us a
+// cached old bundle, those won't match and we reload to fresh.
+//
+// While the page stays open, poll every 10s for new deploys. Never reload
+// mid-conversation — defer until state goes back to idle/error.
+(function setupAutoReload() {
+  const POLL_MS = 10_000;
+  const RELOAD_GUARD_KEY = "callClaudeAutoReload:lastReloadTo";
+  const bundleVersion = window.__BUILD_VERSION || "dev";
+  let bootApiVersion = null;
+  let pendingTarget = null;
+
+  function safeToReloadNow() {
+    return state === "idle" || state === "error";
+  }
+
+  function reloadOnceFor(target) {
+    try {
+      const last = sessionStorage.getItem(RELOAD_GUARD_KEY);
+      if (last === target) return;
+      sessionStorage.setItem(RELOAD_GUARD_KEY, target);
+    } catch {}
+    window.location.reload();
+  }
+
+  function attempt(target) {
+    if (!target) return;
+    if (safeToReloadNow()) reloadOnceFor(target);
+    else pendingTarget = target;
+  }
+
+  async function fetchVersion() {
+    try {
+      const res = await fetch("/api/version", { cache: "no-store" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return typeof data?.version === "string" ? data.version : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function check() {
+    const latest = await fetchVersion();
+    if (!latest) return;
+    if (bootApiVersion === null) {
+      bootApiVersion = latest;
+      if (bundleVersion !== "dev" && latest !== bundleVersion) attempt(latest);
+      return;
+    }
+    if (latest !== bootApiVersion) attempt(latest);
+  }
+
+  function drainPending() {
+    if (pendingTarget && safeToReloadNow()) {
+      const t = pendingTarget;
+      pendingTarget = null;
+      reloadOnceFor(t);
+    }
+  }
+
+  check();
+  setInterval(() => {
+    if (document.hidden) return;
+    check();
+    drainPending();
+  }, POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { check(); drainPending(); }
+  });
+  window.addEventListener("pageshow", (ev) => {
+    if (ev.persisted) window.location.reload();
+  });
+})();

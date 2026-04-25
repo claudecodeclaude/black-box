@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import AutoReload from "./AutoReload";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -20,7 +21,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AutoReload />
+        {children}
+      </body>
     </html>
   );
 }

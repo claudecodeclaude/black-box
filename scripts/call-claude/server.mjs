@@ -21,10 +21,27 @@ import { spawn, execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { execSync } from "node:child_process";
 
 const execFileAsync = promisify(execFile);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Build version stamp for the auto-reload mechanism. Best-effort git SHA
+// from the repo root; if git isn't usable, fall back to the boot timestamp
+// (so a service restart still bumps the version).
+const SERVER_VERSION = (() => {
+  try {
+    return execSync("git rev-parse --short HEAD", {
+      cwd: path.join(__dirname, "..", ".."),
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    return `boot-${Date.now()}`;
+  }
+})();
 
 const HOST = process.env.CALL_CLAUDE_HOST || "100.74.13.60";
 const PORT = Number(process.env.CALL_CLAUDE_PORT || 7683);
@@ -370,11 +387,20 @@ function serveStatic(req, res) {
       ".svg": "image/svg+xml",
       ".png": "image/png",
     };
+    let body = data;
+    if (ext === ".html") {
+      const html = data.toString("utf8");
+      const stamp = `<script>window.__BUILD_VERSION=${JSON.stringify(SERVER_VERSION)};</script>`;
+      const injected = html.includes("</head>")
+        ? html.replace("</head>", `${stamp}</head>`)
+        : stamp + html;
+      body = Buffer.from(injected, "utf8");
+    }
     res.writeHead(200, {
       "Content-Type": types[ext] || "application/octet-stream",
       "Cache-Control": "no-store",
     });
-    res.end(data);
+    res.end(body);
   });
 }
 
@@ -388,6 +414,14 @@ const handler = async (req, res) => {
     if (req.method === "POST" && url === "/api/transcribe") return handleTranscribe(req, res);
     if (req.method === "POST" && url === "/api/speak") return handleSpeak(req, res);
     if (req.method === "GET"  && url === "/api/health") return handleHealth(req, res);
+    if (req.method === "GET"  && url === "/api/version") {
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      });
+      res.end(JSON.stringify({ version: SERVER_VERSION }));
+      return;
+    }
     if (req.method === "GET") return serveStatic(req, res);
     sendJson(res, 404, { error: "not found" });
   } catch (e) {
