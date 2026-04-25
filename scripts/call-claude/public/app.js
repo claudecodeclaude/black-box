@@ -35,8 +35,8 @@ let recordingIsQueued = false;
 // window cancels the pending send and keeps buffering.
 let overBuffer = [];
 let sendTimer = null;
-const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|sand|ten|and)[\s.!?,]*$/i;
-const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|sand|ten|and)\b[\s.!?,]*$/i;
+const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|sand|end|ten|and)[\s.!?,]*$/i;
+const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|sand|end|ten|and)\b[\s.!?,]*$/i;
 const SEND_SILENCE_MS = 3000;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
@@ -177,6 +177,9 @@ function stopReadyChime() {
 }
 
 function playReadyChime() {
+  // Push iOS audio session toward 'playback' before playing so the chime
+  // doesn't get routed to the earpiece while the mic is open in muted mode.
+  forceSpeakerRouting();
   const ctx = ensureFxCtx();
   if (!ctx) return;
   try {
@@ -405,6 +408,12 @@ function setState(next) {
   // waiting-for-input states. sendTurn/doMute re-start it when appropriate.
   if (next !== "listening" && next !== "muted") {
     stopReadyChime();
+  }
+  // Drip should never carry over into a "your turn" state. Belt-and-
+  // suspenders against runTTSQueue's polling-loop drip lingering past the
+  // last sentence.
+  if (next === "listening" || next === "muted" || next === "idle") {
+    stopDripping();
   }
 }
 
