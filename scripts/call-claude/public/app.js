@@ -308,6 +308,25 @@ function doScratch() {
   if (state !== "idle" && !muted && analyser) startVoiceLoop();
 }
 
+async function doResetMic() {
+  playCommandBeep();
+  appendLine("assistant warning", "!", "resetting mic...");
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  closeMic();
+  // Brief pause to let iOS release the audio session before reopening so the
+  // new getUserMedia call gets a fresh stream rather than a stale handle.
+  await new Promise((r) => setTimeout(r, 250));
+  noiseFloor = 0.005; // recalibrate ambient on new mic
+  const ok = await openMic();
+  if (!ok) return;
+  if (muted) {
+    setState("muted");
+    startQueueListening();
+  } else {
+    startVoiceLoop();
+  }
+}
+
 async function doReset() {
   try { await fetch("/api/reset", { method: "POST" }); } catch {}
   if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
@@ -729,6 +748,7 @@ async function onRecordingStopped() {
   if (muted || state === "speaking") {
     if (looksLikeUnmute(text)) { doUnmute(); return; }
     if (CLOSE_RE.test(text)) { doClose(); return; }
+    if (RESET_MIC_RE.test(text)) { await doResetMic(); return; }
     resumeVadForContext(wasQueued);
     return;
   }
@@ -736,6 +756,7 @@ async function onRecordingStopped() {
   // Global voice commands — take precedence over queueing/over-mode so they
   // fire immediately even when captured during Claude's turn.
   if (CLOSE_RE.test(text)) { doClose(); return; }
+  if (RESET_MIC_RE.test(text)) { await doResetMic(); return; }
   if (MUTE_RE.test(text)) { doMute(); return; }
   if (NEW_CONV_RE.test(text)) { await doReset(); return; }
   if (SCRATCH_RE.test(text)) { doScratch(); return; }
