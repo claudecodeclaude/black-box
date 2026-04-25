@@ -33,6 +33,8 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
+  CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+
   CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER REFERENCES users(id),
@@ -45,6 +47,13 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 `);
+
+// Migration: add last_activity_at for the HIPAA-aligned 15-min idle timeout.
+// Wrapped because 'ALTER TABLE ADD COLUMN' errors when the column already
+// exists and node:sqlite doesn't have IF NOT EXISTS for columns.
+try {
+  db.exec("ALTER TABLE sessions ADD COLUMN last_activity_at TEXT");
+} catch {}
 
 // --- User queries ----------------------------------------------------------
 
@@ -82,23 +91,31 @@ export function markLogin(userId) {
 // --- Session queries -------------------------------------------------------
 
 const stmtInsertSession = db.prepare(
-  "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)"
+  "INSERT INTO sessions (id, user_id, created_at, expires_at, last_activity_at) VALUES (?, ?, ?, ?, ?)"
 );
 const stmtFindSession = db.prepare(
-  "SELECT id, user_id, created_at, expires_at FROM sessions WHERE id = ?"
+  "SELECT id, user_id, created_at, expires_at, last_activity_at FROM sessions WHERE id = ?"
 );
 const stmtDeleteSession = db.prepare("DELETE FROM sessions WHERE id = ?");
 const stmtSweepSessions = db.prepare("DELETE FROM sessions WHERE expires_at < ?");
+const stmtTouchSession = db.prepare(
+  "UPDATE sessions SET last_activity_at = ? WHERE id = ?"
+);
 
 export function createSession(sessionId, userId, ttlMs) {
   const now = new Date();
   const expires = new Date(now.getTime() + ttlMs);
-  stmtInsertSession.run(sessionId, userId, now.toISOString(), expires.toISOString());
+  const nowIso = now.toISOString();
+  stmtInsertSession.run(sessionId, userId, nowIso, expires.toISOString(), nowIso);
   return { id: sessionId, userId, expiresAt: expires };
 }
 
 export function findSession(sessionId) {
   return stmtFindSession.get(sessionId);
+}
+
+export function touchSession(sessionId) {
+  stmtTouchSession.run(new Date().toISOString(), sessionId);
 }
 
 export function deleteSession(sessionId) {

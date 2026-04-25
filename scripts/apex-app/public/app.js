@@ -1,5 +1,37 @@
 const $ = (id) => document.getElementById(id);
 
+// HIPAA-aligned client-side idle auto-logout (server enforces the same, but
+// this also clears whatever PHI is on screen if Jason walks away).
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+let lastActivityAt = Date.now();
+let idleTimer = null;
+function markActive() { lastActivityAt = Date.now(); }
+function startIdleWatch() {
+  stopIdleWatch();
+  lastActivityAt = Date.now();
+  for (const ev of ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "visibilitychange"]) {
+    window.addEventListener(ev, markActive, { passive: true });
+  }
+  idleTimer = setInterval(() => {
+    if (Date.now() - lastActivityAt > IDLE_TIMEOUT_MS) {
+      forceLogout("signed out after 15 minutes of inactivity");
+    }
+  }, 30 * 1000);
+}
+function stopIdleWatch() {
+  if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+  for (const ev of ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "visibilitychange"]) {
+    window.removeEventListener(ev, markActive);
+  }
+}
+async function forceLogout(reason) {
+  stopIdleWatch();
+  try { await fetch("/api/logout", { method: "POST", credentials: "same-origin" }); } catch {}
+  const err = $("loginError");
+  if (err) { err.textContent = reason; err.hidden = false; }
+  show("login");
+}
+
 const views = {
   loading: $("view-loading"),
   login: $("view-login"),
@@ -23,6 +55,7 @@ function paintDashboard(user) {
   $("whoUsername").textContent = user.username;
   $("whoRole").textContent = user.role;
   show("dashboard");
+  startIdleWatch();
 }
 
 async function onLogin(e) {
@@ -63,6 +96,7 @@ async function onLogin(e) {
 }
 
 async function onLogout() {
+  stopIdleWatch();
   try {
     await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
   } catch {}

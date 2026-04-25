@@ -22,6 +22,7 @@ import {
   logAudit,
   markLogin,
   sweepExpiredSessions,
+  touchSession,
 } from "./db.mjs";
 import {
   clearSessionCookie,
@@ -39,8 +40,11 @@ const PORT = Number(process.env.APEX_PORT || 7686);
 const CERT_PATH = process.env.APEX_CERT;
 const KEY_PATH = process.env.APEX_KEY;
 
-// HIPAA-reasonable session lifetime. TODO: add a shorter idle timeout too.
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+// HIPAA-aligned session lifetime. 12h absolute maximum, 15m inactivity timeout.
+// NIST recommends ~15min for clinical systems; HIPAA itself requires "automatic
+// logoff after a predetermined time of inactivity" without specifying a number.
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;  // 12h absolute max
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;      // 15m inactivity
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -80,14 +84,28 @@ function readJson(req, maxBytes = 256 * 1024) {
   });
 }
 
-function getCurrentUser(req) {
+function getCurrentUser(req, { touch = true } = {}) {
   const cookies = parseCookies(req.headers.cookie);
   const sid = cookies.apex_session;
   if (!sid) return null;
   const session = findSession(sid);
   if (!session) return null;
-  if (new Date(session.expires_at).getTime() < Date.now()) {
+  const now = Date.now();
+  // Absolute session max (12h from creation).
+  if (new Date(session.expires_at).getTime() < now) {
     deleteSession(sid);
+    logAudit({ userId: session.user_id, action: "session.expired", details: { reason: "absolute" } });
+    return null;
+  }
+  // HIPAA idle timeout: if no activity in IDLE_TIMEOUT_MS, kill the session.
+  // last_activity_at may be NULL for pre-migration sessions — treat as idle
+  // too since we can't prove otherwise.
+  const lastActivityAt = session.last_activity_at
+    ? new Date(session.last_activity_at).getTime()
+    : 0;
+  if (now - lastActivityAt > IDLE_TIMEOUT_MS) {
+    deleteSession(sid);
+    logAudit({ userId: session.user_id, action: "session.expired", details: { reason: "idle" } });
     return null;
   }
   const user = findUserById(session.user_id);
@@ -95,6 +113,8 @@ function getCurrentUser(req) {
     deleteSession(sid);
     return null;
   }
+  // Slide the idle window forward on active use.
+  if (touch) touchSession(sid);
   return { ...user, sessionId: sid };
 }
 
