@@ -55,7 +55,7 @@ const CLOSE_RE = /^\s*close\s+(call\s*)?(claude|clod|cloud|cloed|clawed)[\s.!?,]
 let ttsVoice = localStorage.getItem("callClaudeVoice") || "Nathan";
 // Words-per-minute; macOS default is ~175. Nudged down so Jason can follow
 // while driving.
-let ttsRate = Number(localStorage.getItem("callClaudeRate")) || 160;
+let ttsRate = Number(localStorage.getItem("callClaudeRate")) || 140;
 
 // Running chat log elements
 let pendingUserLine = null; // user line being built up during overMode buffering
@@ -920,6 +920,13 @@ splashEl.addEventListener("click", (ev) => {
 });
 
 stopBtn.addEventListener("click", () => {
+  // Fire-and-forget: ask Claude to drop a session memory note before we tear
+  // everything down. The browser keepalive flag + the Mac Mini server's
+  // spawned claude process keep the work going even after the page transitions
+  // back to the splash, so the memory file gets written without holding up
+  // the UI.
+  saveSessionMemory();
+
   setState("idle");
   muted = false;
   muteBtn.setAttribute("aria-pressed", "false");
@@ -935,6 +942,23 @@ stopBtn.addEventListener("click", () => {
   releaseWakeLock();
   splashEl.classList.remove("hidden");
 });
+
+function saveSessionMemory() {
+  try {
+    const ts = new Date().toISOString().replace(/:/g, "-").slice(0, 16);
+    const filename = `session_${ts}.md`;
+    const prompt =
+      `Before we end this Call Claude session, please save a memory note summarizing what we worked on, what was completed, and any pending or follow-up items. Use the Write tool to save it to /Users/jasonslagel/.claude/projects/-Users-jasonslagel-projects-black-box/memory/${filename}. Include enough detail that another conversation could pick up the thread. After saving, reply with just "session saved" and nothing else.`;
+    fetch("/api/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ text: prompt }),
+    }).catch(() => {});
+  } catch (e) {
+    console.warn("session-memory save failed", e);
+  }
+}
 
 muteBtn.addEventListener("click", () => {
   if (state === "idle" || state === "error") return;
