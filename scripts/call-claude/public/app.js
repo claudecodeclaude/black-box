@@ -27,14 +27,15 @@ let muted = false; // mic paused — call stays alive, nothing is transcribed
 let queuedTurns = [];
 let recordingIsQueued = false;
 
-// "over" mode: always on. Buffers transcripts across silence breaks until
-// Jason says "over" alone, then sends the whole thing as one turn.
-const overMode = true;
+// Send mode: always on. Buffers transcripts across silence breaks. When the
+// last chunk ends with "send" (or a common mishear), wait 3 seconds — if no
+// more speech arrives, the buffer commits as a turn. Any new speech in that
+// window cancels the pending send and keeps buffering.
 let overBuffer = [];
-// Trigger on the standalone word "over" plus common Whisper mishears for
-// short clipped audio (hoover, thor, rover, etc). Case-insensitive, optional
-// trailing punctuation. Must be the entire chunk, not mid-sentence.
-const OVER_RE = /^\s*(over|hoover|thor|rover|clover|oever|ova|ower|o-?ver|oh-?ver|overr|oeuvre)[\s.!?,]*$/i;
+let sendTimer = null;
+const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend)[\s.!?,]*$/i;
+const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend)\b[\s.!?,]*$/i;
+const SEND_SILENCE_MS = 3000;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
 const MUTE_RE = /^\s*(mute|moot|meut|mewt)(\s+mic)?[\s.!?,]*$/i;
@@ -131,6 +132,26 @@ function stopDripping() {
   if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
 }
 
+function playReadyChime() {
+  const ctx = ensureFxCtx();
+  if (!ctx) return;
+  try {
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    // High two-tone "I'm ready for you" bell.
+    osc.frequency.setValueAtTime(1320, t0);
+    osc.frequency.setValueAtTime(1760, t0 + 0.06);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(0.16, t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.2);
+  } catch {}
+}
+
 function playCommandBeep() {
   if (!audioCtx) return;
   try {
@@ -152,6 +173,7 @@ function doMute({ silent = false } = {}) {
   muted = true;
   muteBtn.setAttribute("aria-pressed", "true");
   muteBtn.textContent = "unmute mic";
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
   queuedTurns = [];
   overBuffer = [];
   for (const el of queuedLineEls) el.remove();
@@ -208,6 +230,7 @@ function doClose() {
 }
 
 function doScratch() {
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
   overBuffer = [];
   if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
   playCommandBeep();
@@ -218,6 +241,7 @@ function doScratch() {
 
 async function doReset() {
   try { await fetch("/api/reset", { method: "POST" }); } catch {}
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
   overBuffer = [];
   queuedTurns = [];
   queuedLineEls = [];
@@ -303,6 +327,7 @@ document.addEventListener("visibilitychange", () => {
       muted = false;
       muteBtn.setAttribute("aria-pressed", "false");
       muteBtn.textContent = "mute mic";
+      if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
       queuedTurns = [];
       for (const el of queuedLineEls) el.remove();
       queuedLineEls = [];
@@ -628,40 +653,50 @@ function resumeVadForContext(wasQueued) {
   startVoiceLoop();
 }
 
-async function processTranscript(text) {
-  if (overMode) {
-    if (!OVER_RE.test(text)) {
-      const smoothed = smoothBufferPiece(text, overBuffer.length > 0);
-      if (smoothed) overBuffer.push(smoothed);
-      const combined = overBuffer.join(" ");
-      if (!pendingUserLine) {
-        pendingUserLine = appendLine("user pending", "you");
-      }
-      setLineText(pendingUserLine, combined);
-      if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
-      return;
-    }
-    const finalText = overBuffer.join(" ").trim();
-    overBuffer = [];
-    const committedLine = pendingUserLine;
-    pendingUserLine = null;
-    if (!finalText) {
-      if (committedLine) committedLine.remove();
-      if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
-      return;
-    }
-    committedLine.classList.remove("pending");
-    setLineText(committedLine, finalText);
-    // Auto-mute for the duration of Claude's turn so the mic doesn't pick up
-    // background noise. Jason can say "unmute mic" to resume listening.
-    doMute({ silent: true });
-    await sendTurn(finalText);
+function commitSendBuffer() {
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
+  const finalText = overBuffer.join(" ").trim();
+  overBuffer = [];
+  const committedLine = pendingUserLine;
+  pendingUserLine = null;
+  if (!finalText) {
+    if (committedLine) committedLine.remove();
+    if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
     return;
   }
-
-  appendLine("user", "you", text);
+  committedLine.classList.remove("pending");
+  setLineText(committedLine, finalText);
+  // Auto-mute for the duration of Claude's turn so background noise isn't
+  // picked up. Jason resumes with the voice "unmute" command.
   doMute({ silent: true });
-  await sendTurn(text);
+  sendTurn(finalText).catch((e) => console.warn("sendTurn failed", e));
+}
+
+async function processTranscript(text) {
+  // Any new speech cancels a pending send timer (Jason kept talking).
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
+
+  const endsWithSend = SEND_TAIL_RE.test(text);
+  const cleaned = endsWithSend ? text.replace(SEND_STRIP_RE, "").trim() : text;
+
+  if (cleaned) {
+    const smoothed = smoothBufferPiece(cleaned, overBuffer.length > 0);
+    if (smoothed) overBuffer.push(smoothed);
+    const combined = overBuffer.join(" ");
+    if (!pendingUserLine) {
+      pendingUserLine = appendLine("user pending", "you");
+    }
+    setLineText(pendingUserLine, combined);
+  }
+
+  if (endsWithSend) {
+    sendTimer = setTimeout(() => {
+      sendTimer = null;
+      commitSendBuffer();
+    }, SEND_SILENCE_MS);
+  }
+
+  if (state !== "idle" && !muted && !vadTimer) startVoiceLoop();
 }
 
 // ---------- Claude turn ----------
@@ -808,9 +843,11 @@ async function sendTurn(userText) {
   if (muted) {
     setState("muted");
     startQueueListening();
+    playReadyChime(); // even when muted, signal "I'm done, your turn"
     return;
   }
   startVoiceLoop();
+  playReadyChime();
 
   // Drain anything the user said while we were busy. The recursive sendTurn
   // inside processTranscript will itself drain the rest, so a single shift is
@@ -873,6 +910,7 @@ stopBtn.addEventListener("click", () => {
   muted = false;
   muteBtn.setAttribute("aria-pressed", "false");
   muteBtn.textContent = "mute mic";
+  if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
   queuedTurns = [];
   for (const el of queuedLineEls) el.remove();
   queuedLineEls = [];
