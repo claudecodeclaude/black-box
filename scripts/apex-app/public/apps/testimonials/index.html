@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Testimonial Matcher · Apex App</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/apps/testimonials/style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a href="/" class="brand small">← Apex App</a>
+      </header>
+      <section class="page">
+        <h2>Testimonial Matcher</h2>
+        <p class="tagline">
+          Paste a new patient&rsquo;s phone consult notes and get the 4 testimonials that
+          will resonate most. Patient data stays on the Mac Mini.
+        </p>
+
+        <div class="card match-card">
+          <h3 class="section-label">Match</h3>
+          <textarea id="notes" rows="8" placeholder="Paste the phone consult notes for the new patient…"></textarea>
+          <div class="row">
+            <button id="matchBtn" class="primary">Match top 4</button>
+            <span id="counts" class="muted small"></span>
+          </div>
+          <div id="matchError" class="error" hidden></div>
+          <div id="matchResults" class="match-results"></div>
+        </div>
+
+        <div class="db-buttons">
+          <button id="dbToggle" class="ghost-toggle">▾ Testimonial Database (0)</button>
+          <button id="logsToggle" class="ghost-toggle">▾ Past Entries Database (0)</button>
+        </div>
+
+        <section id="dbPanel" class="card panel" hidden>
+          <h3>Testimonials</h3>
+          <div class="add-area">
+            <div class="row">
+              <input id="videoUrl" type="url" placeholder="Paste a video URL (YouTube, Drive, etc) to auto-transcribe…" />
+              <button id="transcribeBtn" class="primary">Transcribe</button>
+            </div>
+            <div id="transcribeError" class="error" hidden></div>
+            <small class="muted">Tip: scan a printed QR with your iPhone camera, copy the URL, and paste it above.</small>
+            <textarea id="newText" rows="5" placeholder="Paste a testimonial (video transcript, Google review, etc)…"></textarea>
+            <div class="row">
+              <button id="addBtn" class="warm">Add as #?</button>
+              <span class="muted small">Numbers stay contiguous after delete.</span>
+            </div>
+          </div>
+          <div id="testimonialList" class="list"></div>
+        </section>
+
+        <section id="logsPanel" class="card panel" hidden>
+          <h3>Past entries</h3>
+          <div id="logsList" class="list"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/apps/testimonials/app.js"></script>
+  </body>
+</html>

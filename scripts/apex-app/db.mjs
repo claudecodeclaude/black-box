@@ -55,6 +55,26 @@ try {
   db.exec("ALTER TABLE sessions ADD COLUMN last_activity_at TEXT");
 } catch {}
 
+// Testimonial Matcher — patient testimonials and past-match log.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS testimonials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number INTEGER UNIQUE NOT NULL,
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS testimonial_logs (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    notes TEXT NOT NULL,
+    matches TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_testimonial_logs_created_at
+    ON testimonial_logs(created_at);
+`);
+
 // --- User queries ----------------------------------------------------------
 
 const stmtFindUserByName = db.prepare(
@@ -141,4 +161,127 @@ export function logAudit({ userId = null, action, details = null, ip = null, use
     userAgent,
     new Date().toISOString()
   );
+}
+
+// --- Testimonials ----------------------------------------------------------
+
+const stmtTestimonialsAll = db.prepare(
+  "SELECT number, text, created_at FROM testimonials ORDER BY number ASC"
+);
+const stmtTestimonialMaxNumber = db.prepare(
+  "SELECT MAX(number) AS m FROM testimonials"
+);
+const stmtTestimonialInsert = db.prepare(
+  "INSERT INTO testimonials (number, text, created_at) VALUES (?, ?, ?)"
+);
+const stmtTestimonialFind = db.prepare(
+  "SELECT id, number, text, created_at FROM testimonials WHERE number = ?"
+);
+const stmtTestimonialUpdateText = db.prepare(
+  "UPDATE testimonials SET text = ? WHERE number = ?"
+);
+const stmtTestimonialDelete = db.prepare(
+  "DELETE FROM testimonials WHERE number = ?"
+);
+const stmtTestimonialUpdateNumber = db.prepare(
+  "UPDATE testimonials SET number = ? WHERE number = ?"
+);
+
+export function listTestimonials() {
+  return stmtTestimonialsAll.all();
+}
+
+export function nextTestimonialNumber() {
+  const row = stmtTestimonialMaxNumber.get();
+  return (row?.m ?? 0) + 1;
+}
+
+export function addTestimonial(text) {
+  const n = nextTestimonialNumber();
+  stmtTestimonialInsert.run(n, text, new Date().toISOString());
+  return stmtTestimonialFind.get(n);
+}
+
+export function updateTestimonial(number, text) {
+  if (!stmtTestimonialFind.get(number)) return null;
+  stmtTestimonialUpdateText.run(text, number);
+  return stmtTestimonialFind.get(number);
+}
+
+export function deleteTestimonial(number) {
+  // Renumber anything above the deleted entry down by one so the sequence
+  // stays contiguous (mirrors the Black Box app's behavior).
+  const rows = stmtTestimonialsAll.all();
+  const idx = rows.findIndex((r) => r.number === number);
+  if (idx === -1) return false;
+  stmtTestimonialDelete.run(number);
+  // Reload remaining and renumber from 1..N. Use a temporary high number
+  // to avoid UNIQUE collisions during the swap.
+  const remaining = rows.filter((r) => r.number !== number);
+  // Step 1: bump everything to negative numbers so we can rewrite cleanly.
+  const txn = db.transaction(() => {
+    for (let i = 0; i < remaining.length; i++) {
+      stmtTestimonialUpdateNumber.run(-(i + 1), remaining[i].number);
+    }
+    for (let i = 0; i < remaining.length; i++) {
+      stmtTestimonialUpdateNumber.run(i + 1, -(i + 1));
+    }
+  });
+  txn();
+  return true;
+}
+
+export function reorderTestimonial(number, direction) {
+  const target = stmtTestimonialFind.get(number);
+  if (!target) return null;
+  const neighborNumber = direction === "up" ? number - 1 : number + 1;
+  const neighbor = stmtTestimonialFind.get(neighborNumber);
+  if (!neighbor) return target; // already at edge
+  // Three-step swap to avoid the UNIQUE constraint.
+  const txn = db.transaction(() => {
+    stmtTestimonialUpdateNumber.run(-1, target.number);
+    stmtTestimonialUpdateNumber.run(target.number, neighbor.number);
+    stmtTestimonialUpdateNumber.run(neighbor.number, -1);
+  });
+  txn();
+  return stmtTestimonialFind.get(neighborNumber);
+}
+
+export function compactTestimonials() {
+  const rows = stmtTestimonialsAll.all();
+  const txn = db.transaction(() => {
+    for (let i = 0; i < rows.length; i++) {
+      stmtTestimonialUpdateNumber.run(-(i + 1), rows[i].number);
+    }
+    for (let i = 0; i < rows.length; i++) {
+      stmtTestimonialUpdateNumber.run(i + 1, -(i + 1));
+    }
+  });
+  txn();
+  return rows.length;
+}
+
+// --- Testimonial logs ------------------------------------------------------
+
+const stmtLogInsert = db.prepare(
+  "INSERT INTO testimonial_logs (id, created_at, notes, matches) VALUES (?, ?, ?, ?)"
+);
+const stmtLogList = db.prepare(
+  "SELECT id, created_at, notes, matches FROM testimonial_logs ORDER BY created_at DESC"
+);
+
+export function addTestimonialLog({ notes, matches }) {
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const createdAt = new Date().toISOString();
+  stmtLogInsert.run(id, createdAt, notes, JSON.stringify(matches));
+  return { id, created_at: createdAt, notes, matches };
+}
+
+export function listTestimonialLogs() {
+  return stmtLogList.all().map((r) => ({
+    id: r.id,
+    created_at: r.created_at,
+    notes: r.notes,
+    matches: JSON.parse(r.matches),
+  }));
 }

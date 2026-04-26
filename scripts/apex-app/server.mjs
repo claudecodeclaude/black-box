@@ -14,15 +14,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  addTestimonial,
+  addTestimonialLog,
+  compactTestimonials,
   createSession,
   deleteSession,
+  deleteTestimonial,
   findSession,
   findUserById,
   findUserByName,
+  listTestimonialLogs,
+  listTestimonials,
   logAudit,
   markLogin,
+  reorderTestimonial,
   sweepExpiredSessions,
   touchSession,
+  updateTestimonial,
 } from "./db.mjs";
 import {
   clearSessionCookie,
@@ -183,6 +191,173 @@ function handleMe(req, res) {
   });
 }
 
+// --- Testimonial Matcher (auth-required) -----------------------------------
+// All testimonial CRUD lives on this auth-gated server; the actual match
+// (claude -p) and video transcribe (yt-dlp + whisper) still run in the
+// existing testimonial-match service on port 7685, proxied through here so
+// the browser only ever talks to the auth-gated origin.
+const TM_HELPER_BASE = process.env.APEX_TM_HELPER ||
+  "https://jasons-mac-mini-1.taile58089.ts.net:7685";
+
+async function readJsonBody(req, maxBytes = 2 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on("data", (c) => {
+      total += c.length;
+      if (total > maxBytes) { reject(new Error("body too large")); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf8");
+      try { resolve(raw ? JSON.parse(raw) : {}); }
+      catch (e) { reject(new Error(`bad json: ${e.message}`)); }
+    });
+    req.on("error", reject);
+  });
+}
+
+function requireAuth(req, res) {
+  const user = getCurrentUser(req);
+  if (!user) {
+    sendJson(res, 401, { error: "not authenticated" });
+    return null;
+  }
+  return user;
+}
+
+async function handleTestimonialsList(req, res) {
+  if (!requireAuth(req, res)) return;
+  const list = listTestimonials();
+  sendJson(res, 200, {
+    testimonials: list.map((t) => ({ number: t.number, text: t.text, createdAt: t.created_at })),
+  });
+}
+
+async function handleTestimonialsCreate(req, res) {
+  if (!requireAuth(req, res)) return;
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const text = String(body.text || "").trim();
+  if (!text) return sendJson(res, 400, { error: "text required" });
+  const t = addTestimonial(text);
+  sendJson(res, 200, { ok: true, testimonial: t });
+}
+
+async function handleTestimonialUpdate(req, res, number) {
+  if (!requireAuth(req, res)) return;
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const text = String(body.text || "").trim();
+  if (!text) return sendJson(res, 400, { error: "text required" });
+  const updated = updateTestimonial(number, text);
+  if (!updated) return sendJson(res, 404, { error: "not found" });
+  sendJson(res, 200, { ok: true, testimonial: updated });
+}
+
+function handleTestimonialDelete(req, res, number) {
+  if (!requireAuth(req, res)) return;
+  const ok = deleteTestimonial(number);
+  if (!ok) return sendJson(res, 404, { error: "not found" });
+  sendJson(res, 200, { ok: true });
+}
+
+async function handleTestimonialReorder(req, res) {
+  if (!requireAuth(req, res)) return;
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const number = Number(body.number);
+  const direction = body.direction;
+  if (!Number.isFinite(number) || (direction !== "up" && direction !== "down")) {
+    return sendJson(res, 400, { error: "bad request" });
+  }
+  reorderTestimonial(number, direction);
+  sendJson(res, 200, { ok: true });
+}
+
+function handleTestimonialCompact(req, res) {
+  if (!requireAuth(req, res)) return;
+  const count = compactTestimonials();
+  sendJson(res, 200, { ok: true, count });
+}
+
+function handleTestimonialLogsList(req, res) {
+  if (!requireAuth(req, res)) return;
+  const entries = listTestimonialLogs();
+  sendJson(res, 200, { entries });
+}
+
+async function handleTestimonialMatch(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const notes = String(body.notes || "").trim();
+  if (!notes) return sendJson(res, 400, { error: "notes required" });
+  const list = listTestimonials();
+  if (list.length < 4) {
+    return sendJson(res, 400, {
+      error: `need at least 4 testimonials in the database (currently ${list.length})`,
+    });
+  }
+  try {
+    const upstream = await fetch(`${TM_HELPER_BASE}/api/match`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        notes,
+        testimonials: list.map((t) => ({ number: t.number, text: t.text })),
+      }),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) return sendJson(res, upstream.status, { error: text || `HTTP ${upstream.status}` });
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { return sendJson(res, 502, { error: "matcher returned non-JSON" }); }
+    // Log this run for the audit trail and the past-entries panel.
+    if (Array.isArray(parsed.matches)) {
+      addTestimonialLog({ notes, matches: parsed.matches });
+      logAudit({ userId: user.id, action: "testimonial.match", details: { matched: parsed.matches.map((m) => m.number) } });
+    }
+    sendJson(res, 200, parsed);
+  } catch (e) {
+    log(`testimonial match error: ${e.message || e}`);
+    sendJson(res, 502, {
+      error: `Can't reach the matcher service. ${e.message || e}`,
+    });
+  }
+}
+
+async function handleTestimonialTranscribeUrl(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const url = String(body.url || "").trim();
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return sendJson(res, 400, { error: "valid http(s) URL required" });
+  }
+  try {
+    const upstream = await fetch(`${TM_HELPER_BASE}/api/transcribe-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) return sendJson(res, upstream.status, { error: text || `HTTP ${upstream.status}` });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(text);
+  } catch (e) {
+    log(`testimonial transcribe-url error: ${e.message || e}`);
+    sendJson(res, 502, { error: `Can't reach the transcribe service. ${e.message || e}` });
+  }
+}
+
 // --- Static + routing -------------------------------------------------------
 
 function serveStatic(req, res) {
@@ -229,6 +404,23 @@ const handler = async (req, res) => {
     if (req.method === "GET" && url === "/api/me") return handleMe(req, res);
     if (req.method === "POST" && url === "/api/login") return handleLogin(req, res);
     if (req.method === "POST" && url === "/api/logout") return handleLogout(req, res);
+
+    // Testimonial Matcher API
+    if (req.method === "GET" && url === "/api/testimonials") return handleTestimonialsList(req, res);
+    if (req.method === "POST" && url === "/api/testimonials") return handleTestimonialsCreate(req, res);
+    if (req.method === "POST" && url === "/api/testimonials/reorder") return handleTestimonialReorder(req, res);
+    if (req.method === "POST" && url === "/api/testimonials/compact") return handleTestimonialCompact(req, res);
+    if (req.method === "GET" && url === "/api/testimonials/logs") return handleTestimonialLogsList(req, res);
+    if (req.method === "POST" && url === "/api/testimonials/match") return handleTestimonialMatch(req, res);
+    if (req.method === "POST" && url === "/api/testimonials/transcribe-url") return handleTestimonialTranscribeUrl(req, res);
+    {
+      const m = url.match(/^\/api\/testimonials\/(\d+)$/);
+      if (m) {
+        const n = Number(m[1]);
+        if (req.method === "PUT") return handleTestimonialUpdate(req, res, n);
+        if (req.method === "DELETE") return handleTestimonialDelete(req, res, n);
+      }
+    }
     // Sub-apps under /apps/* are gated behind login. PHI-bearing apps live
     // here (testimonials, eventually patient records). Unauthenticated
     // requests bounce to the login screen.
