@@ -1,0 +1,25 @@
+.kw-section { margin-bottom: 28px; }
+.kw-section h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; letter-spacing: 0.5px; }
+.kw-section .blurb { font-size: 12px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+
+.kw-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.kw-chip {
+  font-size: 13px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: inherit;
+  color: var(--fg);
+  cursor: default;
+}
+.kw-chip.candidate {
+  border-color: var(--accent-warm);
+  color: var(--accent-warm);
+  cursor: pointer;
+}
+.kw-chip.approved { border-color: var(--listening, #4dff88); color: #4dff88; }
+.kw-chip.rejected { opacity: 0.4; text-decoration: line-through; }
+.kw-chip .meta { color: var(--muted); margin-left: 6px; font-size: 11px; }
+
+.kw-cat { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 14px 0 6px; }

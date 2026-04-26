@@ -9,7 +9,8 @@
     "lint": "next lint",
     "reddit:test": "tsx scripts/fetch-reddit.ts --test",
     "reddit:bootstrap": "tsx scripts/fetch-reddit.ts --bootstrap",
-    "reddit:incremental": "tsx scripts/fetch-reddit.ts --incremental"
+    "reddit:incremental": "tsx scripts/fetch-reddit.ts --incremental",
+    "reddit:export-apex": "tsx scripts/export-reddit-ads-to-apex.mjs"
   },
   "dependencies": {
     "@vercel/kv": "^3.0.0",

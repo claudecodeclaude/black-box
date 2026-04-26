@@ -105,10 +105,23 @@ Write `data/extraction-state.json`:
 ```
 This is committed so next run knows what's new.
 
-### 8. Commit + push
+### 8. Refresh the Apex App snapshot
+
+The HIPAA-compliant Apex App on the Mac Mini reads a static JSON copy of `data.ts` and `keywords.ts`. Regenerate that snapshot so the in-Apex Reddit Ads view picks up the new topics:
 
 ```bash
-git add app/apex/reddit-ads/data.ts app/apex/reddit-ads/keywords.ts data/reddit-corpus/index.json data/extraction-state.json
+npm run reddit:export-apex
+```
+
+Writes `scripts/apex-app/public/apps/reddit-ads/data/{report,keywords}.json` from the current TS files.
+
+### 9. Commit + push
+
+```bash
+git add app/apex/reddit-ads/data.ts app/apex/reddit-ads/keywords.ts \
+        scripts/apex-app/public/apps/reddit-ads/data/report.json \
+        scripts/apex-app/public/apps/reddit-ads/data/keywords.json \
+        data/reddit-corpus/index.json data/extraction-state.json
 git commit -m "..."
 git push
 ```
@@ -120,9 +133,9 @@ Commit message should include:
 - Misspellings auto-added
 - Candidates queued / applied
 
-### 9. Report back to Jason
+### 10. Report back to Jason
 
-One short summary: how many posts scraped, how many new topics, how many misspellings auto-added, how many candidates now waiting for his review. Mention the URL: https://black-box-orpin.vercel.app/apex/reddit-ads
+One short summary: how many posts scraped, how many new topics, how many misspellings auto-added, how many candidates now waiting for his review. The Reddit Ads view is now inside Apex App at https://jasons-mac-mini-1.taile58089.ts.net:7686/apps/reddit-ads/ (login-gated).
 
 ## Conventions
 

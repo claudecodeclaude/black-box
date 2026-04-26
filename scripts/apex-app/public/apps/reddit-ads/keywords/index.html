@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Keywords · Reddit Ads · Apex App</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/apps/reddit-ads/style.css" />
+    <link rel="stylesheet" href="/apps/reddit-ads/keywords/style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a href="/apps/reddit-ads/" class="brand small">← Reddit Ads</a>
+      </header>
+      <section class="page">
+        <h1>Keywords</h1>
+        <p class="lede">
+          Source-of-truth list the bi-weekly Reddit scan uses. Approve or reject candidates with a tap.
+          Approvals get written to localStorage and synced to <code>data/keywords-overlay.json</code>
+          on the Mac Mini for the next scan run.
+        </p>
+
+        <div id="sections"></div>
+      </section>
+    </main>
+    <script src="/apps/reddit-ads/keywords/app.js"></script>
+  </body>
+</html>
