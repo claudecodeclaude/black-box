@@ -142,9 +142,14 @@ form.login button:disabled { opacity: 0.55; cursor: wait; }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 20px;
+  display: block;
 }
+a.card.tile { color: inherit; text-decoration: none; transition: border-color 120ms ease; }
+a.card.tile:hover { border-color: var(--accent); }
+a.card.tile.disabled { opacity: 0.55; pointer-events: none; }
 .card h3 { margin: 0 0 8px; font-size: 16px; color: var(--accent); }
 .card p { margin: 0 0 10px; font-size: 13px; color: #d5d5d5; line-height: 1.5; }
+.card small { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
 .card ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
 .card ul li { margin-bottom: 4px; }
 

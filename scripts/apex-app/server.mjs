@@ -187,11 +187,17 @@ function handleMe(req, res) {
 
 function serveStatic(req, res) {
   const url = (req.url || "/").split("?")[0];
-  const filePath = url === "/" ? "/index.html" : url;
-  const full = path.join(__dirname, "public", filePath);
+  let filePath = url === "/" ? "/index.html" : url;
+  let full = path.join(__dirname, "public", filePath);
   if (!full.startsWith(path.join(__dirname, "public"))) {
     return sendJson(res, 403, { error: "forbidden" });
   }
+  // If the URL points at a directory, serve its index.html. Lets sub-apps
+  // sit at /apps/<slug>/ without a trailing-slash gymnastic.
+  try {
+    const stat = fs.statSync(full);
+    if (stat.isDirectory()) full = path.join(full, "index.html");
+  } catch {}
   fs.readFile(full, (err, data) => {
     if (err) return sendJson(res, 404, { error: "not found" });
     const ext = path.extname(full).toLowerCase();
@@ -223,6 +229,17 @@ const handler = async (req, res) => {
     if (req.method === "GET" && url === "/api/me") return handleMe(req, res);
     if (req.method === "POST" && url === "/api/login") return handleLogin(req, res);
     if (req.method === "POST" && url === "/api/logout") return handleLogout(req, res);
+    // Sub-apps under /apps/* are gated behind login. PHI-bearing apps live
+    // here (testimonials, eventually patient records). Unauthenticated
+    // requests bounce to the login screen.
+    if (req.method === "GET" && url.startsWith("/apps/")) {
+      const user = getCurrentUser(req);
+      if (!user) {
+        res.writeHead(302, { Location: "/" });
+        return res.end();
+      }
+      return serveStatic(req, res);
+    }
     if (req.method === "GET") return serveStatic(req, res);
     sendJson(res, 405, { error: "method not allowed" });
   } catch (e) {

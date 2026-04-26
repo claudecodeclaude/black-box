@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>QR Generator · Apex App</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/apps/qr/style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a href="/" class="brand small">← Apex App</a>
+      </header>
+      <section style="max-width: 480px; margin: 0 auto; padding: 24px 20px;">
+        <h2 style="font-size: 22px; margin: 0 0 18px;">QR Generator</h2>
+
+        <form id="qrForm" autocomplete="off">
+          <label>
+            <span>Text or URL</span>
+            <input type="text" name="text" required placeholder="https://..." />
+          </label>
+          <label>
+            <span>Filename (no extension)</span>
+            <input type="text" name="filename" placeholder="qr-code" />
+          </label>
+          <label>
+            <span>Optional logo (PNG/JPG)</span>
+            <input type="file" name="logo" accept="image/png,image/jpeg" />
+          </label>
+          <button type="submit">Generate QR Code</button>
+        </form>
+
+        <div id="result" hidden style="margin-top: 24px; text-align: center;">
+          <canvas id="qrCanvas" style="max-width: 280px; border-radius: 8px; border: 1px solid var(--border);"></canvas>
+          <div style="margin-top: 14px;">
+            <a id="downloadLink" download="qr-code.png" class="ghost">Download PNG</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="/apps/qr/qrcode.min.js"></script>
+    <script src="/apps/qr/app.js"></script>
+  </body>
+</html>
