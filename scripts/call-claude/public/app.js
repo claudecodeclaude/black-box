@@ -277,7 +277,11 @@ async function forceMicReset(reason) {
   } else {
     startVoiceLoop();
   }
-  appendLine("assistant warning", "!", `mic reset (${reason})`);
+  // Watchdog/manual mic-reset is silent now — Jason found the alert noisy
+  // and the underlying false-positive ('stuck in recording' during normal
+  // continuous talking) was already fixed by stateChangedAt always
+  // refreshing on setState. The reset itself still runs as a safety net.
+  console.log(`mic reset (${reason})`);
 }
 
 // Watchdog: if a state we expect to be transient lingers too long, kick the
