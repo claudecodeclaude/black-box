@@ -708,7 +708,10 @@ const NOISE_FLOOR_MULTIPLIER = 2.4;     // speech must be ~2.4x ambient
 const NOISE_FLOOR_ALPHA = 0.02;         // EMA weight per ~20ms tick (~10s adapt)
 let noiseFloor = 0.005;                 // module-scoped: persists across mic
                                         // restarts and recording cycles
-const SPEECH_START_FRAMES = 1;          // ~20ms above threshold triggers record
+const SPEECH_START_FRAMES = 3;          // ~60ms sustained above threshold —
+                                        // small enough not to clip Jason's
+                                        // first word in practice, large enough
+                                        // to ignore single-frame noise pops
 const SILENCE_HANG_MS = 1200;           // stop after this much continuous silence
 const SILENCE_HANG_MS_MUTED = 500;      // shorter hang while muted so the
                                         // 'unmute' command fires snappily
