@@ -71,7 +71,12 @@ async function maybeShowPasskeyBanner(user) {
     const r = await fetch("/api/passkey/list", { credentials: "same-origin" });
     if (!r.ok) return;
     const { passkeys } = await r.json();
-    if (passkeys && passkeys.length > 0) return; // already enrolled
+    if (passkeys && passkeys.length > 0) {
+      // Already enrolled — record skip so we never even hit this branch again
+      // on this device. Survives a stale-cache scenario where the JS lagged.
+      try { localStorage.setItem(PASSKEY_SKIP_LS_KEY(user.username), "1"); } catch {}
+      return;
+    }
     banner.hidden = false;
   } catch {}
 }
@@ -331,14 +336,25 @@ $("passkeyBannerSetup")?.addEventListener("click", async () => {
   }
 });
 
-$("passkeyBannerSkip")?.addEventListener("click", () => {
-  // Hide immediately for snappy UX — record the skip in localStorage in the
-  // background using the username we already showed in the topbar.
+function dismissBannerNow() {
   $("passkeyBanner").hidden = true;
   const username = $("whoUsername").textContent.trim();
   if (username) {
     try { localStorage.setItem(PASSKEY_SKIP_LS_KEY(username), "1"); } catch {}
   }
+}
+
+$("passkeyBannerSkip")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  dismissBannerNow();
+});
+
+// Safety net: tap anywhere on the banner that ISN'T the Set up button also
+// dismisses. If the Skip button ever felt unresponsive (e.g. stale cached JS,
+// touch dead-zone), tapping the surrounding area still closes it.
+$("passkeyBanner")?.addEventListener("click", (e) => {
+  if (e.target.closest("#passkeyBannerSetup")) return;
+  dismissBannerNow();
 });
 
 init();
