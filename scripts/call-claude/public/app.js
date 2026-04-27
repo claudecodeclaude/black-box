@@ -35,8 +35,8 @@ let recordingIsQueued = false;
 // window cancels the pending send and keeps buffering.
 let overBuffer = [];
 let sendTimer = null;
-const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|sand|end|ten|and)[\s.!?,]*$/i;
-const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|sand|end|ten|and)\b[\s.!?,]*$/i;
+const SEND_TAIL_RE = /\b(send|sent|sind|senned|scend|sand|sound|end|ten|and)[\s.!?,]*$/i;
+const SEND_STRIP_RE = /\s*\b(send|sent|sind|senned|scend|sand|sound|end|ten|and)\b[\s.!?,]*$/i;
 const SEND_SILENCE_MS = 3000;
 // Standalone voice commands. Same pause-word-pause rule as "over", with
 // common Whisper mishears accepted.
