@@ -463,20 +463,20 @@ document.addEventListener("visibilitychange", () => {
     // Free the screen wake lock — let the phone sleep if it's going to.
     releaseWakeLock();
   } else if (document.visibilityState === "visible") {
-    if (state !== "idle") acquireWakeLock();
-    // Wake the FX context up so the chime/drip keep playing.
     if (fxCtx && fxCtx.state === "suspended") fxCtx.resume().catch(() => {});
-    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
-    // Deliver anything Claude said while we were backgrounded.
-    if (pendingTTSWhileHidden.length) drainPendingTTS();
-    // iOS almost always kills the getUserMedia stream + audio session on
-    // backgrounding for more than a few seconds. Force a clean mic reset
-    // when we come back so Jason doesn't see "fetch failed" or a stuck mic.
+    // iOS suspends the audio session + getUserMedia stream when the tab is
+    // backgrounded. Programmatic openMic() won't recover — Safari requires a
+    // fresh user gesture. So we surface the splash overlay (same big START
+    // tap target as a fresh launch) on top of the preserved conversation
+    // log. The splash click handler below cleans up any stale mic state
+    // and reopens everything once Jason taps.
     if (wasHiddenSinceLastVisible && state !== "idle" && state !== "error") {
       wasHiddenSinceLastVisible = false;
-      forceMicReset("returned from background");
+      splashEl.classList.remove("hidden");
+      stateEl.textContent = "tap to resume";
     } else {
       wasHiddenSinceLastVisible = false;
+      if (state !== "idle") acquireWakeLock();
     }
   }
 });
@@ -1216,16 +1216,34 @@ splashEl.addEventListener("click", (ev) => {
   // playback when TTS is about to play.
   prepareAudioSessionForMic();
 
+  // Resume vs cold-start: if state isn't idle/error, this is a tap-to-resume
+  // after iOS suspended the tab. The mic stream is dead but the conversation
+  // log is intact in the DOM. Tear down the stale audio plumbing and give
+  // openMic a clean slate.
+  const isResume = state !== "idle" && state !== "error";
+  if (isResume) {
+    try { currentTurn?.abort(); } catch {}
+    closeMic();
+  }
+
   splashEl.classList.add("hidden");
-  stateEl.textContent = "requesting mic...";
+  stateEl.textContent = isResume ? "resuming…" : "requesting mic...";
 
   (async () => {
     try {
+      if (isResume) await new Promise((r) => setTimeout(r, 100));
       const ok = await openMic();
       if (!ok) return; // openMic already set error state
       await acquireWakeLock();
-      startVoiceLoop();
+      if (muted) {
+        setState("muted");
+        startQueueListening();
+      } else {
+        startVoiceLoop();
+      }
       startWatchdog();
+      // If iOS suspended us mid-response, drain any TTS we held back.
+      if (pendingTTSWhileHidden.length) drainPendingTTS();
     } catch (err) {
       console.error("start failed", err);
       setState("error");
