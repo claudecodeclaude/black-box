@@ -718,10 +718,11 @@ function effectiveSilenceHang() {
 const MIN_RECORDING_MS = 500;           // ignore too-short blips
 const MAX_RECORDING_MS = 20_000;        // hard cap per utterance
 
-// While muted, drop the multiplier so a quietly-spoken "unmute" still trips
-// the threshold. Voice-ID verification on the server still rejects passenger
-// audio, so the looser bar doesn't open up false unmutes.
-const NOISE_FLOOR_MULTIPLIER_MUTED = 1.5;
+// While muted, drop the multiplier well below 1.0 so even a quiet "unmute"
+// trips the threshold without yelling. Voice-ID verification on the server
+// rejects passenger/background audio, and 'unmute' isn't a word people say
+// at random in a conversation, so a loose bar here is fine.
+const NOISE_FLOOR_MULTIPLIER_MUTED = 0.9;
 function effectiveThreshold() {
   const mult = muted ? NOISE_FLOOR_MULTIPLIER_MUTED : NOISE_FLOOR_MULTIPLIER;
   return Math.max(SILENCE_THRESHOLD, noiseFloor * mult);
