@@ -459,8 +459,10 @@ function releaseWakeLock() {
 // holds TTS chunks in pendingTTSWhileHidden and only plays a short "hey
 // Jason, ready when you are" cue so Claude doesn't talk over Jason's other
 // app. On return we drain the held chunks.
+let wasHiddenSinceLastVisible = false;
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
+    wasHiddenSinceLastVisible = true;
     // Free the screen wake lock — let the phone sleep if it's going to.
     releaseWakeLock();
   } else if (document.visibilityState === "visible") {
@@ -470,6 +472,15 @@ document.addEventListener("visibilitychange", () => {
     if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
     // Deliver anything Claude said while we were backgrounded.
     if (pendingTTSWhileHidden.length) drainPendingTTS();
+    // iOS almost always kills the getUserMedia stream + audio session on
+    // backgrounding for more than a few seconds. Force a clean mic reset
+    // when we come back so Jason doesn't see "fetch failed" or a stuck mic.
+    if (wasHiddenSinceLastVisible && state !== "idle" && state !== "error") {
+      wasHiddenSinceLastVisible = false;
+      forceMicReset("returned from background");
+    } else {
+      wasHiddenSinceLastVisible = false;
+    }
   }
 });
 
@@ -1124,8 +1135,15 @@ async function sendTurn(userText) {
     }
   } catch (err) {
     console.error(err);
-    assistantText += (assistantText ? " " : "") + "sorry — something went wrong. " + (err.message || "");
-    setLineText(currentAssistantLine, assistantText);
+    // Suppress the apology when iOS aborts the fetch because Jason
+    // backgrounded Safari, or when we deliberately aborted on stop/close.
+    // The visibilitychange handler will force-reset the mic on return.
+    const wasAbort = err.name === "AbortError" || /aborted|cancelled/i.test(err.message || "");
+    const hidden = document.visibilityState === "hidden";
+    if (!wasAbort && !hidden && !wasHiddenSinceLastVisible) {
+      assistantText += (assistantText ? " " : "") + "sorry — something went wrong. " + (err.message || "");
+      setLineText(currentAssistantLine, assistantText);
+    }
   }
 
   // Speak any trailing text that didn't end with sentence punctuation
