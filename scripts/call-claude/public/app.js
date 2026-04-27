@@ -228,9 +228,11 @@ function stopReadyChime() {
 }
 
 function playReadyChime(count = 5) {
-  // Push iOS audio session toward 'playback' before playing so the chime
-  // doesn't get routed to the earpiece while the mic is open in muted mode.
-  forceSpeakerRouting();
+  // NOTE: don't call forceSpeakerRouting() here. Setting the iOS audio
+  // session to "playback" disables the active mic stream, which broke
+  // voice 'unmute' detection after the chime fired. The chime may route
+  // through the earpiece while muted (mic active), but that's the
+  // tolerable trade-off vs. silently killing the mic.
   const ctx = ensureFxCtx();
   if (!ctx) return;
   // iOS sometimes leaves the FX context suspended after a tab return —
