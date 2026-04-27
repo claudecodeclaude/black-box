@@ -180,6 +180,35 @@ form.login button:disabled { opacity: 0.55; cursor: wait; }
 .passkey-msg.ok { background: #0e2a1a; border: 1px solid #4dff88; color: #88ffaa; }
 .passkey-msg.err { background: #2a0e0e; border: 1px solid #ff6b6b; color: #ff9b9b; }
 
+/* First-login passkey enrollment soft prompt */
+.passkey-banner {
+  max-width: 900px;
+  margin: 16px auto 0;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #0a1a24 0%, #1a3a54 100%);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.passkey-banner-text { flex: 1 1 220px; }
+.passkey-banner-text strong { display: block; font-size: 14px; color: var(--accent); margin-bottom: 2px; }
+.passkey-banner-text span { font-size: 13px; color: #d5e9f5; }
+.passkey-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.primary-mini {
+  background: var(--accent); color: #001018; border: none;
+  border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.ghost-mini {
+  background: transparent; color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px; padding: 8px 16px; font-size: 13px;
+  cursor: pointer; font-family: inherit;
+}
+
 /* dashboard */
 #view-dashboard { padding: 0; }
 .topbar {
