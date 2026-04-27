@@ -173,6 +173,8 @@ function startReadyChime() {
     // (state is "muted" during auto-muted TTS, which still triggers
     // the timer above.)
     if (audioEl && !audioEl.paused && !audioEl.ended) return;
+    // Drip means Claude isn't done. The two should never sound together.
+    if (dripTimer) return;
     playReadyChime(2);
   }, 30000);
 }
@@ -1161,6 +1163,9 @@ async function sendTurn(userText) {
   if (state === "idle") return;
   const reopened = await openMic();
   if (!reopened) return;
+  // Make absolutely sure the drip is off before announcing "your turn" —
+  // runTTSQueue's polling loop or any race could have left it running.
+  stopDripping();
   if (muted) {
     setState("muted");
     startQueueListening();
