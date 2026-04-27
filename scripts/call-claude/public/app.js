@@ -424,18 +424,13 @@ function setState(next) {
   if (next === "listening" || next === "muted" || next === "idle") {
     stopDripping();
   }
-  // Tie the ready-chime audio cue to entering a "your turn" state ONLY when
-  // Claude was just working (thinking/speaking/transcribing). Without this
-  // gate, every recording → listening cycle during normal conversation fired
-  // the 5-chime burst, which interrupted Jason mid-sentence. The 30-second
-  // recurring reminder still runs while in listening/muted regardless.
-  if ((next === "listening" || next === "muted") && prev !== next) {
-    const wasClaudeBusy = prev === "thinking" || prev === "speaking" || prev === "transcribing";
-    if (wasClaudeBusy && document.visibilityState === "visible") {
-      playReadyChime();
-    }
-    startReadyChime();
-  } else if (next !== "listening" && next !== "muted") {
+  // Stop the recurring chime whenever we leave a "your turn" state. The
+  // chime is started explicitly at the end of sendTurn (after all TTS
+  // drains) — NOT here on every state transition, because state cycles
+  // through "muted" at the START of TTS playback (via ensureMicClosedForSpeech)
+  // which would falsely fire the 5-chime burst before Claude even started
+  // talking.
+  if (next !== "listening" && next !== "muted") {
     stopReadyChime();
   }
 }
