@@ -173,14 +173,14 @@ function startReadyChime() {
     // (state is "muted" during auto-muted TTS, which still triggers
     // the timer above.)
     if (audioEl && !audioEl.paused && !audioEl.ended) return;
-    playReadyChime();
+    playReadyChime(2);
   }, 30000);
 }
 function stopReadyChime() {
   if (readyChimeTimer) { clearInterval(readyChimeTimer); readyChimeTimer = null; }
 }
 
-function playReadyChime() {
+function playReadyChime(count = 5) {
   // Push iOS audio session toward 'playback' before playing so the chime
   // doesn't get routed to the earpiece while the mic is open in muted mode.
   forceSpeakerRouting();
@@ -188,9 +188,9 @@ function playReadyChime() {
   if (!ctx) return;
   try {
     const t0 = ctx.currentTime;
-    // Play five short chimes in quick succession (~1.1s total) so Jason
-    // hears the "your turn" cue clearly even with road noise.
-    for (let i = 0; i < 5; i++) {
+    // Initial 'your turn' cue uses 5 chimes (~1.1s) so Jason can't miss it
+    // while driving. Recurring 30-second reminders use 2, less intrusive.
+    for (let i = 0; i < count; i++) {
       const t = t0 + i * 0.22;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
