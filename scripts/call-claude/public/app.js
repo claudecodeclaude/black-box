@@ -416,12 +416,16 @@ function setState(next) {
   if (next === "listening" || next === "muted" || next === "idle") {
     stopDripping();
   }
-  // Tie the ready-chime audio cue to entering a "your turn" state. Fires
-  // an immediate 5-chime burst if we're transitioning IN, plus schedules
-  // the recurring 30-second reminder. Reliable regardless of which code
-  // path moved the state — sendTurn end, doUnmute, splash click, etc.
+  // Tie the ready-chime audio cue to entering a "your turn" state ONLY when
+  // Claude was just working (thinking/speaking/transcribing). Without this
+  // gate, every recording → listening cycle during normal conversation fired
+  // the 5-chime burst, which interrupted Jason mid-sentence. The 30-second
+  // recurring reminder still runs while in listening/muted regardless.
   if ((next === "listening" || next === "muted") && prev !== next) {
-    if (document.visibilityState === "visible") playReadyChime();
+    const wasClaudeBusy = prev === "thinking" || prev === "speaking" || prev === "transcribing";
+    if (wasClaudeBusy && document.visibilityState === "visible") {
+      playReadyChime();
+    }
     startReadyChime();
   } else if (next !== "listening" && next !== "muted") {
     stopReadyChime();
@@ -441,37 +445,23 @@ function releaseWakeLock() {
   try { wakeLock?.release(); } catch {}
   wakeLock = null;
 }
-// iOS Safari suspends getUserMedia streams and fetches when the tab is
-// backgrounded, so the call can't resume cleanly by itself. Stop everything
-// on hide, then drop back to the splash so the return tap counts as a user
-// gesture and iOS is happy to reopen the mic.
-let wasActiveBeforeHide = false;
+// Don't tear the session down when Safari backgrounds the tab. iOS may
+// auto-suspend the AudioContext + pause fetches, but the VAD's audioCtx
+// resume() and the watchdog are designed to recover. While hidden, speak()
+// holds TTS chunks in pendingTTSWhileHidden and only plays a short "hey
+// Jason, ready when you are" cue so Claude doesn't talk over Jason's other
+// app. On return we drain the held chunks.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
-    if (state !== "idle" && state !== "error") {
-      wasActiveBeforeHide = true;
-      try { audioEl?.pause(); } catch {}
-      try { currentTurn?.abort(); } catch {}
-      closeMic();
-      releaseWakeLock();
-      muted = false;
-      muteBtn.setAttribute("aria-pressed", "false");
-      muteBtn.textContent = "mute mic";
-      if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
-      queuedTurns = [];
-      for (const el of queuedLineEls) el.remove();
-      queuedLineEls = [];
-      if (pendingUserLine) { pendingUserLine.remove(); pendingUserLine = null; }
-      overBuffer = [];
-      setState("idle");
-    }
+    // Free the screen wake lock — let the phone sleep if it's going to.
+    releaseWakeLock();
   } else if (document.visibilityState === "visible") {
-    if (wasActiveBeforeHide) {
-      wasActiveBeforeHide = false;
-      splashEl.classList.remove("hidden");
-      stateEl.textContent = "tap to resume";
-    }
     if (state !== "idle") acquireWakeLock();
+    // Wake the FX context up so the chime/drip keep playing.
+    if (fxCtx && fxCtx.state === "suspended") fxCtx.resume().catch(() => {});
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+    // Deliver anything Claude said while we were backgrounded.
+    if (pendingTTSWhileHidden.length) drainPendingTTS();
   }
 });
 
@@ -513,7 +503,14 @@ function prepareAudioSessionForMic() {
   } catch {}
 }
 
-async function speak(text) {
+// Buffer of TTS chunks held back while the app is backgrounded. We don't
+// want Claude's full response talking over Jason's other apps — instead we
+// queue them and play once he returns. A short "hey Jason, ready when you
+// are" cue announces that we have something waiting.
+let pendingTTSWhileHidden = [];
+let heyJasonAnnounced = false;
+
+async function speakNow(text) {
   if (!text) return;
   forceSpeakerRouting();
   try {
@@ -543,6 +540,30 @@ async function speak(text) {
     });
   } catch (err) {
     console.error("speak failed", err);
+  }
+}
+
+async function speak(text) {
+  if (!text) return;
+  if (document.visibilityState === "hidden") {
+    pendingTTSWhileHidden.push(text);
+    if (!heyJasonAnnounced) {
+      heyJasonAnnounced = true;
+      // Short attention cue. Whether iOS lets it through depends on how
+      // recently the audio element was played, but the chimes (which use
+      // the FX AudioContext) keep firing on the regular interval too.
+      try { await speakNow("Hey Jason, ready when you are."); } catch {}
+    }
+    return;
+  }
+  await speakNow(text);
+}
+
+async function drainPendingTTS() {
+  heyJasonAnnounced = false;
+  while (pendingTTSWhileHidden.length) {
+    const t = pendingTTSWhileHidden.shift();
+    await speakNow(t);
   }
 }
 
