@@ -393,6 +393,7 @@ function setState(next) {
   // recordings) keeps the watchdog timer fresh. Without this, stateChangedAt
   // froze at the first recording's start and the watchdog falsely flagged
   // "stuck in recording" after 25s of normal continuous talking.
+  const prev = state;
   stateChangedAt = Date.now();
   state = next;
   document.body.className = `state-${next}`;
@@ -409,16 +410,21 @@ function setState(next) {
   stopBtn.disabled = next === "idle" || next === "error";
   muteBtn.disabled = next === "idle" || next === "error";
 
-  // Kill the 30-second ready-chime reminder whenever we leave the
-  // waiting-for-input states. sendTurn/doMute re-start it when appropriate.
-  if (next !== "listening" && next !== "muted") {
-    stopReadyChime();
-  }
   // Drip should never carry over into a "your turn" state. Belt-and-
   // suspenders against runTTSQueue's polling-loop drip lingering past the
   // last sentence.
   if (next === "listening" || next === "muted" || next === "idle") {
     stopDripping();
+  }
+  // Tie the ready-chime audio cue to entering a "your turn" state. Fires
+  // an immediate 5-chime burst if we're transitioning IN, plus schedules
+  // the recurring 30-second reminder. Reliable regardless of which code
+  // path moved the state — sendTurn end, doUnmute, splash click, etc.
+  if ((next === "listening" || next === "muted") && prev !== next) {
+    if (document.visibilityState === "visible") playReadyChime();
+    startReadyChime();
+  } else if (next !== "listening" && next !== "muted") {
+    stopReadyChime();
   }
 }
 

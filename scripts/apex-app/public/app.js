@@ -331,10 +331,14 @@ $("passkeyBannerSetup")?.addEventListener("click", async () => {
   }
 });
 
-$("passkeyBannerSkip")?.addEventListener("click", async () => {
-  const me = await fetchMe();
-  if (me) dismissPasskeyBanner(me.username, true);
-  else $("passkeyBanner").hidden = true;
+$("passkeyBannerSkip")?.addEventListener("click", () => {
+  // Hide immediately for snappy UX — record the skip in localStorage in the
+  // background using the username we already showed in the topbar.
+  $("passkeyBanner").hidden = true;
+  const username = $("whoUsername").textContent.trim();
+  if (username) {
+    try { localStorage.setItem(PASSKEY_SKIP_LS_KEY(username), "1"); } catch {}
+  }
 });
 
 init();
