@@ -55,6 +55,24 @@ try {
   db.exec("ALTER TABLE sessions ADD COLUMN last_activity_at TEXT");
 } catch {}
 
+// Passkeys (WebAuthn). One row per registered authenticator (a single user
+// can have multiple — phone, laptop, hardware key, etc).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS passkeys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    credential_id TEXT UNIQUE NOT NULL,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports TEXT,
+    name TEXT,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_passkeys_user_id ON passkeys(user_id);
+`);
+
 // Testimonial Matcher — patient testimonials and past-match log.
 db.exec(`
   CREATE TABLE IF NOT EXISTS testimonials (
@@ -161,6 +179,56 @@ export function logAudit({ userId = null, action, details = null, ip = null, use
     userAgent,
     new Date().toISOString()
   );
+}
+
+// --- Passkeys --------------------------------------------------------------
+
+const stmtPasskeyInsert = db.prepare(
+  "INSERT INTO passkeys (user_id, credential_id, public_key, counter, transports, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+);
+const stmtPasskeyByCredId = db.prepare(
+  "SELECT id, user_id, credential_id, public_key, counter, transports, name, created_at, last_used_at FROM passkeys WHERE credential_id = ?"
+);
+const stmtPasskeysForUser = db.prepare(
+  "SELECT id, credential_id, transports, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at ASC"
+);
+const stmtPasskeyUpdateCounter = db.prepare(
+  "UPDATE passkeys SET counter = ?, last_used_at = ? WHERE credential_id = ?"
+);
+const stmtPasskeyDelete = db.prepare(
+  "DELETE FROM passkeys WHERE id = ? AND user_id = ?"
+);
+
+export function addPasskey({ userId, credentialId, publicKey, counter, transports, name }) {
+  stmtPasskeyInsert.run(
+    userId,
+    credentialId,
+    publicKey,
+    counter,
+    transports ? JSON.stringify(transports) : null,
+    name || null,
+    new Date().toISOString()
+  );
+}
+export function findPasskeyByCredentialId(credentialId) {
+  const row = stmtPasskeyByCredId.get(credentialId);
+  if (!row) return null;
+  return {
+    ...row,
+    transports: row.transports ? JSON.parse(row.transports) : null,
+  };
+}
+export function listPasskeysForUser(userId) {
+  return stmtPasskeysForUser.all(userId).map((r) => ({
+    ...r,
+    transports: r.transports ? JSON.parse(r.transports) : null,
+  }));
+}
+export function updatePasskeyCounter(credentialId, counter) {
+  stmtPasskeyUpdateCounter.run(counter, new Date().toISOString(), credentialId);
+}
+export function deletePasskey(id, userId) {
+  return stmtPasskeyDelete.run(id, userId).changes > 0;
 }
 
 // --- Testimonials ----------------------------------------------------------

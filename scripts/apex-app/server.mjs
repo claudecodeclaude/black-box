@@ -14,15 +14,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  addPasskey,
   addTestimonial,
   addTestimonialLog,
   compactTestimonials,
   createSession,
+  deletePasskey,
   deleteSession,
   deleteTestimonial,
+  findPasskeyByCredentialId,
   findSession,
   findUserById,
   findUserByName,
+  listPasskeysForUser,
   listTestimonialLogs,
   listTestimonials,
   logAudit,
@@ -30,8 +34,15 @@ import {
   reorderTestimonial,
   sweepExpiredSessions,
   touchSession,
+  updatePasskeyCounter,
   updateTestimonial,
 } from "./db.mjs";
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from "@simplewebauthn/server";
 import {
   clearSessionCookie,
   newSessionId,
@@ -53,6 +64,31 @@ const KEY_PATH = process.env.APEX_KEY;
 // logoff after a predetermined time of inactivity" without specifying a number.
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;  // 12h absolute max
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;      // 15m inactivity
+
+// WebAuthn / passkeys. RP_ID is the hostname only, no port/scheme. Origin is
+// the full URL Jason loads in his browser.
+const RP_ID = process.env.APEX_RP_ID || "jasons-mac-mini-1.taile58089.ts.net";
+const RP_ORIGIN = process.env.APEX_RP_ORIGIN || `https://${RP_ID}:${PORT}`;
+const RP_NAME = "Apex App";
+
+// In-memory challenge store. Key is a short-lived id we return to the client
+// (or the username for registration). Value is { challenge, userId?, expiresAt }.
+// Cleared after use; auto-purged after 5 minutes.
+const challengeStore = new Map();
+const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+function putChallenge(key, value) {
+  challengeStore.set(key, { ...value, expiresAt: Date.now() + CHALLENGE_TTL_MS });
+}
+function takeChallenge(key) {
+  const v = challengeStore.get(key);
+  challengeStore.delete(key);
+  if (!v || v.expiresAt < Date.now()) return null;
+  return v;
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of challengeStore) if (v.expiresAt < now) challengeStore.delete(k);
+}, 60 * 1000).unref();
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -189,6 +225,167 @@ function handleMe(req, res) {
       lastLoginAt: user.last_login_at,
     },
   });
+}
+
+// --- Passkeys / WebAuthn ---------------------------------------------------
+
+function b64urlToBuffer(b64url) {
+  return Buffer.from(b64url, "base64url");
+}
+function bufferToB64url(buf) {
+  return Buffer.from(buf).toString("base64url");
+}
+
+async function handlePasskeyRegisterBegin(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  const existing = listPasskeysForUser(user.id);
+  const options = await generateRegistrationOptions({
+    rpName: RP_NAME,
+    rpID: RP_ID,
+    userID: new TextEncoder().encode(String(user.id)),
+    userName: user.username,
+    userDisplayName: user.username,
+    attestationType: "none",
+    authenticatorSelection: {
+      residentKey: "preferred",
+      userVerification: "preferred",
+    },
+    excludeCredentials: existing.map((c) => ({
+      id: c.credential_id,
+      transports: c.transports || undefined,
+    })),
+  });
+  putChallenge(`reg:${user.id}`, { challenge: options.challenge, userId: user.id });
+  sendJson(res, 200, options);
+}
+
+async function handlePasskeyRegisterFinish(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const { response, name } = body || {};
+  const stored = takeChallenge(`reg:${user.id}`);
+  if (!stored) return sendJson(res, 400, { error: "no pending registration challenge" });
+  let verification;
+  try {
+    verification = await verifyRegistrationResponse({
+      response,
+      expectedChallenge: stored.challenge,
+      expectedOrigin: RP_ORIGIN,
+      expectedRPID: RP_ID,
+      requireUserVerification: false,
+    });
+  } catch (e) {
+    log(`passkey register verify failed: ${e.message || e}`);
+    return sendJson(res, 400, { error: `verify failed: ${e.message || e}` });
+  }
+  if (!verification.verified || !verification.registrationInfo) {
+    return sendJson(res, 400, { error: "verification failed" });
+  }
+  const { credential } = verification.registrationInfo;
+  addPasskey({
+    userId: user.id,
+    credentialId: credential.id,
+    publicKey: bufferToB64url(credential.publicKey),
+    counter: credential.counter,
+    transports: credential.transports || null,
+    name: typeof name === "string" ? name.slice(0, 80) : null,
+  });
+  logAudit({ userId: user.id, action: "passkey.registered", ip: clientIp(req) });
+  sendJson(res, 200, { ok: true });
+}
+
+async function handlePasskeyAuthBegin(_req, res) {
+  // Discoverable credentials: don't pre-filter by user, the browser picks.
+  const options = await generateAuthenticationOptions({
+    rpID: RP_ID,
+    userVerification: "preferred",
+  });
+  // Random client-side id to correlate response with stored challenge.
+  const id = newSessionId();
+  putChallenge(`auth:${id}`, { challenge: options.challenge });
+  sendJson(res, 200, { challengeId: id, options });
+}
+
+async function handlePasskeyAuthFinish(req, res) {
+  let body;
+  try { body = await readJsonBody(req); }
+  catch (e) { return sendJson(res, 400, { error: String(e.message || e) }); }
+  const { challengeId, response } = body || {};
+  const stored = takeChallenge(`auth:${challengeId}`);
+  if (!stored) return sendJson(res, 400, { error: "no pending authentication challenge" });
+
+  const credId = response?.id;
+  if (!credId) return sendJson(res, 400, { error: "missing credential id" });
+  const stored_passkey = findPasskeyByCredentialId(credId);
+  if (!stored_passkey) {
+    logAudit({ action: "passkey.auth.failed", details: { reason: "unknown_credential" }, ip: clientIp(req) });
+    return sendJson(res, 401, { error: "credential not recognized" });
+  }
+  const user = findUserById(stored_passkey.user_id);
+  if (!user) return sendJson(res, 401, { error: "user no longer exists" });
+
+  let verification;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response,
+      expectedChallenge: stored.challenge,
+      expectedOrigin: RP_ORIGIN,
+      expectedRPID: RP_ID,
+      credential: {
+        id: stored_passkey.credential_id,
+        publicKey: b64urlToBuffer(stored_passkey.public_key),
+        counter: stored_passkey.counter,
+        transports: stored_passkey.transports || undefined,
+      },
+      requireUserVerification: false,
+    });
+  } catch (e) {
+    logAudit({ userId: user.id, action: "passkey.auth.failed", details: { reason: "verify_threw", error: String(e.message || e) }, ip: clientIp(req) });
+    return sendJson(res, 401, { error: "verification failed" });
+  }
+  if (!verification.verified) {
+    logAudit({ userId: user.id, action: "passkey.auth.failed", details: { reason: "not_verified" }, ip: clientIp(req) });
+    return sendJson(res, 401, { error: "verification failed" });
+  }
+
+  updatePasskeyCounter(stored_passkey.credential_id, verification.authenticationInfo.newCounter);
+
+  const sid = newSessionId();
+  createSession(sid, user.id, SESSION_TTL_MS);
+  markLogin(user.id);
+  logAudit({ userId: user.id, action: "login.success", details: { method: "passkey" }, ip: clientIp(req), userAgent: req.headers["user-agent"] || null });
+
+  sendJson(
+    res,
+    200,
+    { ok: true, user: { username: user.username, role: user.role } },
+    { "Set-Cookie": sessionCookie(sid, { maxAgeSeconds: SESSION_TTL_MS / 1000 }) }
+  );
+}
+
+function handlePasskeyList(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  const list = listPasskeysForUser(user.id).map((p) => ({
+    id: p.id,
+    name: p.name,
+    createdAt: p.created_at,
+    lastUsedAt: p.last_used_at,
+  }));
+  sendJson(res, 200, { passkeys: list });
+}
+
+async function handlePasskeyDelete(req, res, id) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  const ok = deletePasskey(id, user.id);
+  if (!ok) return sendJson(res, 404, { error: "not found" });
+  logAudit({ userId: user.id, action: "passkey.deleted", details: { id } });
+  sendJson(res, 200, { ok: true });
 }
 
 // --- Testimonial Matcher (auth-required) -----------------------------------
@@ -404,6 +601,15 @@ const handler = async (req, res) => {
     if (req.method === "GET" && url === "/api/me") return handleMe(req, res);
     if (req.method === "POST" && url === "/api/login") return handleLogin(req, res);
     if (req.method === "POST" && url === "/api/logout") return handleLogout(req, res);
+    if (req.method === "POST" && url === "/api/passkey/register/begin") return handlePasskeyRegisterBegin(req, res);
+    if (req.method === "POST" && url === "/api/passkey/register/finish") return handlePasskeyRegisterFinish(req, res);
+    if (req.method === "POST" && url === "/api/passkey/auth/begin") return handlePasskeyAuthBegin(req, res);
+    if (req.method === "POST" && url === "/api/passkey/auth/finish") return handlePasskeyAuthFinish(req, res);
+    if (req.method === "GET" && url === "/api/passkey/list") return handlePasskeyList(req, res);
+    {
+      const m = url.match(/^\/api\/passkey\/(\d+)$/);
+      if (m && req.method === "DELETE") return handlePasskeyDelete(req, res, Number(m[1]));
+    }
 
     // Testimonial Matcher API
     if (req.method === "GET" && url === "/api/testimonials") return handleTestimonialsList(req, res);

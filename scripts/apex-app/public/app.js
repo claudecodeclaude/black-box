@@ -56,6 +56,10 @@ function paintDashboard(user) {
   $("whoRole").textContent = user.role;
   show("dashboard");
   startIdleWatch();
+  if (window.PublicKeyCredential) {
+    $("passkeyManageCard").hidden = false;
+    refreshPasskeys();
+  }
 }
 
 async function onLogin(e) {
@@ -112,4 +116,204 @@ async function init() {
 
 $("loginForm").addEventListener("submit", onLogin);
 $("logoutBtn").addEventListener("click", onLogout);
+
+// --- Passkeys / WebAuthn ---------------------------------------------------
+
+// SimpleWebAuthn-style helpers: convert between base64url and ArrayBuffer.
+function b64urlToBuf(s) {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/").padEnd(s.length + (4 - s.length % 4) % 4, "=");
+  const bin = atob(padded);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+function bufToB64url(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Hide the passkey button on browsers that don't support WebAuthn.
+if (!window.PublicKeyCredential) {
+  const btn = $("passkeyBtn");
+  if (btn) btn.style.display = "none";
+}
+
+$("passkeyBtn")?.addEventListener("click", async () => {
+  const errEl = $("loginError");
+  errEl.hidden = true;
+  const btn = $("passkeyBtn");
+  btn.disabled = true;
+  btn.textContent = "Waiting for passkey…";
+  try {
+    const beginRes = await fetch("/api/passkey/auth/begin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: "{}",
+    });
+    if (!beginRes.ok) throw new Error(`begin failed (${beginRes.status})`);
+    const { challengeId, options } = await beginRes.json();
+
+    // Translate base64url fields the server gave us into ArrayBuffers for
+    // navigator.credentials.get().
+    const publicKey = {
+      ...options,
+      challenge: b64urlToBuf(options.challenge),
+      allowCredentials: (options.allowCredentials || []).map((c) => ({
+        ...c,
+        id: b64urlToBuf(c.id),
+      })),
+    };
+    const cred = await navigator.credentials.get({ publicKey });
+    const response = {
+      id: cred.id,
+      rawId: bufToB64url(cred.rawId),
+      type: cred.type,
+      response: {
+        clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+        authenticatorData: bufToB64url(cred.response.authenticatorData),
+        signature: bufToB64url(cred.response.signature),
+        userHandle: cred.response.userHandle ? bufToB64url(cred.response.userHandle) : undefined,
+      },
+      clientExtensionResults: cred.getClientExtensionResults?.() || {},
+      authenticatorAttachment: cred.authenticatorAttachment,
+    };
+
+    const finishRes = await fetch("/api/passkey/auth/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ challengeId, response }),
+    });
+    const j = await finishRes.json().catch(() => ({}));
+    if (!finishRes.ok) {
+      errEl.textContent = j.error || `Passkey sign-in failed (${finishRes.status})`;
+      errEl.hidden = false;
+      return;
+    }
+    paintDashboard(j.user);
+  } catch (err) {
+    if (err.name === "NotAllowedError") {
+      // User cancelled or no matching passkey — silent.
+      return;
+    }
+    errEl.textContent = `Passkey error: ${err.message || err}`;
+    errEl.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="key">🔑</span> Sign in with passkey';
+  }
+});
+
+async function refreshPasskeys() {
+  try {
+    const r = await fetch("/api/passkey/list", { credentials: "same-origin" });
+    if (!r.ok) return;
+    const { passkeys } = await r.json();
+    const list = $("passkeyList");
+    list.innerHTML = "";
+    for (const pk of passkeys || []) {
+      const row = document.createElement("div");
+      row.className = "passkey-row";
+      const left = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = pk.name || "Passkey";
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const created = new Date(pk.createdAt).toLocaleDateString();
+      const used = pk.lastUsedAt ? new Date(pk.lastUsedAt).toLocaleDateString() : "never used";
+      meta.textContent = `added ${created} · last used ${used}`;
+      left.appendChild(name);
+      left.appendChild(meta);
+      row.appendChild(left);
+      const del = document.createElement("button");
+      del.textContent = "remove";
+      del.addEventListener("click", () => removePasskey(pk.id));
+      row.appendChild(del);
+      list.appendChild(row);
+    }
+  } catch {}
+}
+
+async function removePasskey(id) {
+  if (!confirm("Remove this passkey?")) return;
+  await fetch(`/api/passkey/${id}`, { method: "DELETE", credentials: "same-origin" });
+  refreshPasskeys();
+}
+
+$("enrollPasskeyBtn")?.addEventListener("click", async () => {
+  const btn = $("enrollPasskeyBtn");
+  const msg = $("passkeyMessage");
+  msg.hidden = true;
+  btn.disabled = true;
+  btn.textContent = "Setting up…";
+  try {
+    const beginRes = await fetch("/api/passkey/register/begin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: "{}",
+    });
+    if (!beginRes.ok) throw new Error(`begin failed (${beginRes.status})`);
+    const options = await beginRes.json();
+
+    const publicKey = {
+      ...options,
+      challenge: b64urlToBuf(options.challenge),
+      user: {
+        ...options.user,
+        id: b64urlToBuf(options.user.id),
+      },
+      excludeCredentials: (options.excludeCredentials || []).map((c) => ({
+        ...c,
+        id: b64urlToBuf(c.id),
+      })),
+    };
+
+    const cred = await navigator.credentials.create({ publicKey });
+    const response = {
+      id: cred.id,
+      rawId: bufToB64url(cred.rawId),
+      type: cred.type,
+      response: {
+        clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+        attestationObject: bufToB64url(cred.response.attestationObject),
+        transports: cred.response.getTransports ? cred.response.getTransports() : undefined,
+      },
+      clientExtensionResults: cred.getClientExtensionResults?.() || {},
+      authenticatorAttachment: cred.authenticatorAttachment,
+    };
+
+    const defaultName = navigator.userAgent.includes("iPhone") ? "iPhone"
+      : navigator.userAgent.includes("Mac") ? "Mac"
+      : navigator.userAgent.includes("Windows") ? "Windows PC"
+      : "this device";
+    const name = prompt("Name this passkey:", defaultName) || defaultName;
+
+    const finishRes = await fetch("/api/passkey/register/finish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ response, name }),
+    });
+    const j = await finishRes.json().catch(() => ({}));
+    if (!finishRes.ok) throw new Error(j.error || `register failed (${finishRes.status})`);
+    msg.textContent = "Passkey added. Next time you can sign in with just Face ID or Touch ID.";
+    msg.className = "passkey-msg ok";
+    msg.hidden = false;
+    refreshPasskeys();
+  } catch (err) {
+    if (err.name === "NotAllowedError") return; // user cancelled
+    msg.textContent = `Couldn't add passkey: ${err.message || err}`;
+    msg.className = "passkey-msg err";
+    msg.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Add a passkey on this device";
+  }
+});
+
 init();
