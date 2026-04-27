@@ -56,10 +56,6 @@ function paintDashboard(user) {
   $("whoRole").textContent = user.role;
   show("dashboard");
   startIdleWatch();
-  if (window.PublicKeyCredential) {
-    $("passkeyManageCard").hidden = false;
-    refreshPasskeys();
-  }
 }
 
 async function onLogin(e) {
