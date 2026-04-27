@@ -169,6 +169,10 @@ function startReadyChime() {
     if (document.visibilityState !== "visible") return;
     // Waiting for Jason in either plain listening OR muted-awaiting-unmute.
     if (state !== "listening" && state !== "muted") return;
+    // Don't talk over Claude — audio element is actively playing TTS.
+    // (state is "muted" during auto-muted TTS, which still triggers
+    // the timer above.)
+    if (audioEl && !audioEl.paused && !audioEl.ended) return;
     playReadyChime();
   }, 30000);
 }
