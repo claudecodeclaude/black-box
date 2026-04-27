@@ -102,6 +102,7 @@ function appendLine(role, speakerLabel, text = "") {
   line.appendChild(body);
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
+  scheduleLogPersist();
   return line;
 }
 
@@ -110,6 +111,50 @@ function setLineText(line, text) {
   const body = line.querySelector(".body");
   if (body) body.textContent = text;
   logEl.scrollTop = logEl.scrollHeight;
+  scheduleLogPersist();
+}
+
+// --- Conversation log persistence ----------------------------------------
+// Save the chat log to localStorage so a full Exit + reopen preserves the
+// scrollback. Pending lines (mid-buffer) are skipped — only committed
+// turns + assistant responses get restored.
+const LOG_LS_KEY = "callClaude/log/v1";
+const LOG_MAX_LINES = 200;
+let logPersistTimer = null;
+function scheduleLogPersist() {
+  if (logPersistTimer) return;
+  logPersistTimer = setTimeout(persistLogNow, 400);
+}
+function persistLogNow() {
+  logPersistTimer = null;
+  try {
+    const lines = [];
+    for (const el of logEl.children) {
+      const cls = el.className || "";
+      if (cls.includes("pending")) continue;
+      const speaker = el.querySelector(".speaker")?.textContent || "";
+      const text = el.querySelector(".body")?.textContent || "";
+      lines.push({ cls, speaker, text });
+    }
+    const trimmed = lines.slice(-LOG_MAX_LINES);
+    localStorage.setItem(LOG_LS_KEY, JSON.stringify(trimmed));
+  } catch {}
+}
+function restoreLog() {
+  try {
+    const raw = localStorage.getItem(LOG_LS_KEY);
+    if (!raw) return;
+    const lines = JSON.parse(raw);
+    if (!Array.isArray(lines)) return;
+    for (const ln of lines) {
+      const role = (ln.cls || "line").replace(/^line\s+/, "");
+      const line = appendLine(role, ln.speaker || "", ln.text || "");
+      // Don't double-persist what we just restored
+    }
+    // appendLine bumped the persist schedule for each restored line; cancel
+    // and write once with the (unchanged) state so we don't churn.
+    if (logPersistTimer) { clearTimeout(logPersistTimer); logPersistTimer = null; }
+  } catch {}
 }
 
 // Separate AudioContext for UI sound effects — survives the mic's audioCtx
@@ -188,6 +233,17 @@ function playReadyChime(count = 5) {
   forceSpeakerRouting();
   const ctx = ensureFxCtx();
   if (!ctx) return;
+  // iOS sometimes leaves the FX context suspended after a tab return —
+  // resume() is async, so if we just queue oscillators without waiting, the
+  // chimes never play. Defer the actual scheduling until resume settles.
+  if (ctx.state === "suspended") {
+    ctx.resume().then(() => playReadyChimeNow(ctx, count)).catch(() => {});
+    return;
+  }
+  playReadyChimeNow(ctx, count);
+}
+
+function playReadyChimeNow(ctx, count) {
   try {
     const t0 = ctx.currentTime;
     // Initial 'your turn' cue uses 5 chimes (~1.1s) so Jason can't miss it
@@ -364,6 +420,7 @@ async function doReset() {
   pendingUserLine = null;
   currentAssistantLine = null;
   logEl.textContent = "";
+  try { localStorage.removeItem(LOG_LS_KEY); } catch {}
   appendLine("assistant warning", "!", "started a fresh conversation");
   playCommandBeep();
   if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
@@ -1310,6 +1367,10 @@ muteBtn.addEventListener("click", () => {
 });
 
 setState("idle");
+
+// Restore the chat log from the prior session if any. Run AFTER setState
+// so the dashboard isn't briefly populated before being hidden.
+restoreLog();
 
 // ---------- auto-reload on server update ----------
 //
