@@ -81,7 +81,9 @@ function loadSession() {
     const stat = fs.statSync(SESSION_FILE);
     const today = new Date().toDateString();
     if (stat.mtime.toDateString() !== today) {
-      log(`session expired (last touched ${stat.mtime.toISOString()}); starting fresh`);
+      const oldId = fs.readFileSync(SESSION_FILE, "utf8").trim();
+      log(`session expired (last touched ${stat.mtime.toISOString()}); consolidating memory + starting fresh`);
+      consolidateMemoriesAsync(oldId);
       clearSession();
       return null;
     }
@@ -89,6 +91,30 @@ function loadSession() {
     if (id) return id;
   } catch {}
   return null;
+}
+
+// Fire-and-forget: spawn a one-off claude run on the expiring session and
+// ask it to write anything memorable from the day's conversation into the
+// auto-memory system before we abandon the session id. Memory files land in
+// ~/.claude/projects/<encoded>/memory/, so the next-day Call Claude session
+// AND any terminal Claude Code session in this project pick them up.
+function consolidateMemoriesAsync(oldSessionId) {
+  if (!oldSessionId) return;
+  const prompt = `This Call Claude voice session is being auto-reset for cost reasons (a new calendar day started). Before it ends, look back over today's conversation and use your auto-memory system to save anything future sessions should remember — new user details, project status changes, decisions made, feedback Jason gave you, external references. Be selective per the auto-memory guidelines: skip ephemeral task details and anything derivable from the repo or already in MEMORY.md. Quality over quantity. When done, exit silently.`;
+  const args = [
+    "-p",
+    "--resume", oldSessionId,
+    "--permission-mode", "bypassPermissions",
+    prompt,
+  ];
+  log(`spawning memory consolidation for ${oldSessionId}`);
+  const child = spawn(CLAUDE_BIN, args, {
+    cwd: WORK_DIR,
+    env: { ...process.env, TERM: "dumb" },
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
 }
 function saveSession(id) {
   fs.writeFileSync(SESSION_FILE, id);
