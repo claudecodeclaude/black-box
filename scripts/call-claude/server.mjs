@@ -78,6 +78,13 @@ fs.mkdirSync(STATE_DIR, { recursive: true });
 
 function loadSession() {
   try {
+    const stat = fs.statSync(SESSION_FILE);
+    const today = new Date().toDateString();
+    if (stat.mtime.toDateString() !== today) {
+      log(`session expired (last touched ${stat.mtime.toISOString()}); starting fresh`);
+      clearSession();
+      return null;
+    }
     const id = fs.readFileSync(SESSION_FILE, "utf8").trim();
     if (id) return id;
   } catch {}
