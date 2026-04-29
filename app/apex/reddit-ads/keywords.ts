@@ -49,6 +49,8 @@ export const baseKeywords: Record<CategoryName, string[]> = {
     "nerve damage",
     "nerve pain",
     "nerve pains",
+    "polyneuropathy",
+    "neuropathic pain",
   ],
   "Disc / Spine": [
     "herniated disc",
@@ -144,41 +146,15 @@ export type Candidate = {
 
 // Candidates queued for Jason's review. Populated when a term that's not
 // already in baseKeywords or rejected gets mentioned ≥10 times in a scrape.
-export const candidates: Candidate[] = [
-  {
-    term: "polyneuropathy",
-    count: 47,
-    firstSeen: "2026-04-14",
-    suggestedCategory: "Neuropathy",
-    example: "My GP diagnosed me with polyneuropathy after the nerve conduction test.",
-  },
-  {
-    term: "spondylolisthesis",
-    count: 28,
-    firstSeen: "2026-04-14",
-    suggestedCategory: "Disc / Spine",
-    example: "Grade 2 spondylolisthesis at L5-S1 has been ruining my life for years.",
-  },
-  {
-    term: "neuropathic pain",
-    count: 22,
-    firstSeen: "2026-04-14",
-    suggestedCategory: "Neuropathy",
-    example: "The neuropathic pain kept me awake for the entire first week.",
-  },
-  {
-    term: "facet joint syndrome",
-    count: 14,
-    firstSeen: "2026-04-14",
-    suggestedCategory: "Disc / Spine",
-    example: "Turns out it wasn't a disc problem at all — it was facet joint syndrome.",
-  },
-];
+export const candidates: Candidate[] = [];
 
 // Rejected terms — never re-suggested. Can include original base keywords or
 // misspellings that Jason rejects from the popup menu; the scan runbook moves
 // them out of their source list into here.
-export const rejected: string[] = [];
+export const rejected: string[] = [
+  "spondylolisthesis",
+  "facet joint syndrome",
+];
 
 // Direct-hit counts for each active keyword — how many times that exact
 // surface form was found across the corpus, refreshed every scan. Populated

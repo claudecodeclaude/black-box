@@ -27,7 +27,9 @@
       "agent orange nerve pain",
       "nerve damage",
       "nerve pain",
-      "nerve pains"
+      "nerve pains",
+      "polyneuropathy",
+      "neuropathic pain"
     ],
     "Disc / Spine": [
       "herniated disc",
@@ -67,36 +69,7 @@
       "radiating nerve pain"
     ]
   },
-  "candidates": [
-    {
-      "term": "polyneuropathy",
-      "count": 47,
-      "firstSeen": "2026-04-14",
-      "suggestedCategory": "Neuropathy",
-      "example": "My GP diagnosed me with polyneuropathy after the nerve conduction test."
-    },
-    {
-      "term": "spondylolisthesis",
-      "count": 28,
-      "firstSeen": "2026-04-14",
-      "suggestedCategory": "Disc / Spine",
-      "example": "Grade 2 spondylolisthesis at L5-S1 has been ruining my life for years."
-    },
-    {
-      "term": "neuropathic pain",
-      "count": 22,
-      "firstSeen": "2026-04-14",
-      "suggestedCategory": "Neuropathy",
-      "example": "The neuropathic pain kept me awake for the entire first week."
-    },
-    {
-      "term": "facet joint syndrome",
-      "count": 14,
-      "firstSeen": "2026-04-14",
-      "suggestedCategory": "Disc / Spine",
-      "example": "Turns out it wasn't a disc problem at all — it was facet joint syndrome."
-    }
-  ],
+  "candidates": [],
   "misspellings": [
     "nueropathy",
     "neropathy",
@@ -136,7 +109,10 @@
     "radicalopathy",
     "radioculopathy"
   ],
-  "rejected": [],
+  "rejected": [
+    "spondylolisthesis",
+    "facet joint syndrome"
+  ],
   "hitCounts": {
     "neuropathy": 18472,
     "peripheral neuropathy": 6213,
