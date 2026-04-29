@@ -55,6 +55,14 @@ try {
   db.exec("ALTER TABLE sessions ADD COLUMN last_activity_at TEXT");
 } catch {}
 
+// Migration: server-side persistence for the "Skip" button on the passkey
+// setup banner. localStorage was unreliable on iOS Safari (private-browsing
+// throws, some cookie settings clear it, stale-cache scenarios resurrect the
+// banner). Storing on the user row makes dismissal stick across devices.
+try {
+  db.exec("ALTER TABLE users ADD COLUMN passkey_prompt_dismissed_at TEXT");
+} catch {}
+
 // Passkeys (WebAuthn). One row per registered authenticator (a single user
 // can have multiple — phone, laptop, hardware key, etc).
 db.exec(`
@@ -96,7 +104,7 @@ db.exec(`
 // --- User queries ----------------------------------------------------------
 
 const stmtFindUserByName = db.prepare(
-  "SELECT id, username, password_hash, totp_secret, role, created_at, last_login_at FROM users WHERE username = ?"
+  "SELECT id, username, password_hash, totp_secret, role, created_at, last_login_at, passkey_prompt_dismissed_at FROM users WHERE username = ?"
 );
 const stmtInsertUser = db.prepare(
   "INSERT INTO users (username, password_hash, totp_secret, role, created_at) VALUES (?, ?, ?, ?, ?)"
@@ -105,7 +113,10 @@ const stmtUpdateLastLogin = db.prepare(
   "UPDATE users SET last_login_at = ? WHERE id = ?"
 );
 const stmtFindUserById = db.prepare(
-  "SELECT id, username, role, created_at, last_login_at FROM users WHERE id = ?"
+  "SELECT id, username, role, created_at, last_login_at, passkey_prompt_dismissed_at FROM users WHERE id = ?"
+);
+const stmtDismissPasskeyPrompt = db.prepare(
+  "UPDATE users SET passkey_prompt_dismissed_at = ? WHERE id = ?"
 );
 
 export function findUserByName(username) {
@@ -124,6 +135,10 @@ export function createUser({ username, passwordHash, totpSecret, role = "staff" 
 
 export function markLogin(userId) {
   stmtUpdateLastLogin.run(new Date().toISOString(), userId);
+}
+
+export function dismissPasskeyPrompt(userId) {
+  stmtDismissPasskeyPrompt.run(new Date().toISOString(), userId);
 }
 
 // --- Session queries -------------------------------------------------------

@@ -66,24 +66,21 @@ async function maybeShowPasskeyBanner(user) {
   if (!banner) return;
   banner.hidden = true;
   if (!window.PublicKeyCredential) return;
-  if (localStorage.getItem(PASSKEY_SKIP_LS_KEY(user.username))) return;
+  // Server-side dismissal is the source of truth (durable across devices and
+  // resistant to iOS Safari localStorage flakiness). LS is just a redundant
+  // hint to suppress the banner instantly before /api/me re-confirms.
+  if (user.passkeyPromptDismissed) return;
+  try { if (localStorage.getItem(PASSKEY_SKIP_LS_KEY(user.username))) return; } catch {}
   try {
     const r = await fetch("/api/passkey/list", { credentials: "same-origin" });
     if (!r.ok) return;
     const { passkeys } = await r.json();
     if (passkeys && passkeys.length > 0) {
-      // Already enrolled — record skip so we never even hit this branch again
-      // on this device. Survives a stale-cache scenario where the JS lagged.
       try { localStorage.setItem(PASSKEY_SKIP_LS_KEY(user.username), "1"); } catch {}
       return;
     }
     banner.hidden = false;
   } catch {}
-}
-
-function dismissPasskeyBanner(username, skipped) {
-  $("passkeyBanner").hidden = true;
-  if (skipped) localStorage.setItem(PASSKEY_SKIP_LS_KEY(username), "1");
 }
 
 async function onLogin(e) {
@@ -342,6 +339,10 @@ function dismissBannerNow() {
   if (username) {
     try { localStorage.setItem(PASSKEY_SKIP_LS_KEY(username), "1"); } catch {}
   }
+  // Persist server-side too so the banner stays gone on every device, every
+  // browser, regardless of localStorage state.
+  fetch("/api/passkey/skip", { method: "POST", credentials: "same-origin" })
+    .catch(() => {});
 }
 
 $("passkeyBannerSkip")?.addEventListener("click", (e) => {

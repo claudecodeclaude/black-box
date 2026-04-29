@@ -22,6 +22,7 @@ import {
   deletePasskey,
   deleteSession,
   deleteTestimonial,
+  dismissPasskeyPrompt,
   findPasskeyByCredentialId,
   findSession,
   findUserById,
@@ -200,7 +201,7 @@ async function handleLogin(req, res) {
   sendJson(
     res,
     200,
-    { ok: true, user: { username: user.username, role: user.role } },
+    { ok: true, user: { username: user.username, role: user.role, passkeyPromptDismissed: Boolean(user.passkey_prompt_dismissed_at) } },
     { "Set-Cookie": sessionCookie(sid, { maxAgeSeconds: SESSION_TTL_MS / 1000 }) }
   );
 }
@@ -223,8 +224,17 @@ function handleMe(req, res) {
       username: user.username,
       role: user.role,
       lastLoginAt: user.last_login_at,
+      passkeyPromptDismissed: Boolean(user.passkey_prompt_dismissed_at),
     },
   });
+}
+
+function handlePasskeySkip(req, res) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  dismissPasskeyPrompt(user.id);
+  logAudit({ userId: user.id, action: "passkey.prompt.dismissed", ip: clientIp(req) });
+  sendJson(res, 200, { ok: true });
 }
 
 // --- Passkeys / WebAuthn ---------------------------------------------------
@@ -362,7 +372,7 @@ async function handlePasskeyAuthFinish(req, res) {
   sendJson(
     res,
     200,
-    { ok: true, user: { username: user.username, role: user.role } },
+    { ok: true, user: { username: user.username, role: user.role, passkeyPromptDismissed: Boolean(user.passkey_prompt_dismissed_at) } },
     { "Set-Cookie": sessionCookie(sid, { maxAgeSeconds: SESSION_TTL_MS / 1000 }) }
   );
 }
@@ -606,6 +616,7 @@ const handler = async (req, res) => {
     if (req.method === "POST" && url === "/api/passkey/auth/begin") return handlePasskeyAuthBegin(req, res);
     if (req.method === "POST" && url === "/api/passkey/auth/finish") return handlePasskeyAuthFinish(req, res);
     if (req.method === "GET" && url === "/api/passkey/list") return handlePasskeyList(req, res);
+    if (req.method === "POST" && url === "/api/passkey/skip") return handlePasskeySkip(req, res);
     {
       const m = url.match(/^\/api\/passkey\/(\d+)$/);
       if (m && req.method === "DELETE") return handlePasskeyDelete(req, res, Number(m[1]));
