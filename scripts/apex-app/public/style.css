@@ -193,6 +193,8 @@ form.login button:disabled { opacity: 0.55; cursor: wait; }
   gap: 16px;
   flex-wrap: wrap;
 }
+/* Author CSS beats the UA [hidden]{display:none} rule, so make hidden stick. */
+.passkey-banner[hidden] { display: none; }
 .passkey-banner-text { flex: 1 1 220px; }
 .passkey-banner-text strong { display: block; font-size: 14px; color: var(--accent); margin-bottom: 2px; }
 .passkey-banner-text span { font-size: 13px; color: #d5e9f5; }

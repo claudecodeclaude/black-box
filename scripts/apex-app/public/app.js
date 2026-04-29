@@ -321,10 +321,16 @@ $("passkeyBannerSetup")?.addEventListener("click", async () => {
   btn.textContent = "Setting up…";
   try {
     await enrollPasskey();
-    $("passkeyBanner").hidden = true;
+    dismissBannerNow();
     alert("Passkey added. Next time you can sign in with just Face ID or Touch ID.");
   } catch (err) {
-    if (err.name !== "NotAllowedError") {
+    // InvalidStateError = the OS keychain already has a passkey for this site.
+    // Treat that as "you're done" and dismiss so Jason isn't stuck on a banner
+    // he literally cannot satisfy because the credential already exists.
+    if (err.name === "InvalidStateError") {
+      dismissBannerNow();
+      alert("You already have a passkey set up on this device. Banner dismissed.");
+    } else if (err.name !== "NotAllowedError") {
       alert(`Couldn't add passkey: ${err.message || err}`);
     }
   } finally {
