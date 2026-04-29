@@ -557,9 +557,14 @@ function ensureAudio() {
 // iOS Safari (17+) lets us force the audio session category so TTS plays out
 // the main speaker instead of the earpiece even while a mic stream was just
 // released. Falls back silently on unsupported browsers.
+let currentAudioSession = null;
 function forceSpeakerRouting() {
   try {
     if (typeof navigator !== "undefined" && navigator.audioSession) {
+      if (currentAudioSession !== "playback") {
+        console.log("[audio] session → playback");
+        currentAudioSession = "playback";
+      }
       navigator.audioSession.type = "playback";
     }
   } catch {}
@@ -573,6 +578,10 @@ function forceSpeakerRouting() {
 function prepareAudioSessionForMic() {
   try {
     if (typeof navigator !== "undefined" && navigator.audioSession) {
+      if (currentAudioSession !== "play-and-record") {
+        console.log("[audio] session → play-and-record");
+        currentAudioSession = "play-and-record";
+      }
       navigator.audioSession.type = "play-and-record";
     }
   } catch {}
@@ -645,7 +654,19 @@ async function drainPendingTTS() {
 // ---------- mic setup ----------
 
 async function openMic() {
-  if (micStream) return true;
+  // If we already have a stream, verify its audio track is still live
+  // before short-circuiting. iOS occasionally kills the track during
+  // long sessions / audio-session flips even though the JS reference
+  // looks healthy. Tear down + reopen instead of returning a corpse.
+  if (micStream) {
+    const track = micStream.getAudioTracks?.()[0];
+    if (track && track.readyState === "live" && !track.muted) return true;
+    console.warn("[mic] existing stream is dead, reopening", {
+      readyState: track?.readyState,
+      muted: track?.muted,
+    });
+    closeMic();
+  }
   prepareAudioSessionForMic();
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
@@ -851,6 +872,15 @@ function setupVAD({ queued }) {
   let lastSoundAt = 0;
   let recordingStartedAt = 0;
   let recording = false;
+  // Dead-mic detector. iOS will sometimes leave a mic stream "alive" but
+  // muted at the audio-session level (most often after TTS forced
+  // "playback" mode and we forgot to flip back). Samples come back as a
+  // perfect 128 array → rms exactly 0. If we see that for a few seconds
+  // straight, force a full mic reset rather than silently failing.
+  let deadMicFrames = 0;
+  const DEAD_MIC_RMS = 1e-5;
+  // 20ms tick × 200 frames = 4s of pure silence before we declare dead.
+  const DEAD_MIC_FRAMES = 200;
 
   const stopRec = () => {
     if (!recording) return;
@@ -876,6 +906,23 @@ function setupVAD({ queued }) {
     const rms = Math.sqrt(sumSq / buf.length);
     const now = Date.now();
     const threshold = effectiveThreshold();
+
+    // Dead-mic check — runs only while we're not actively recording, so a
+    // genuinely quiet pause inside an utterance can't trip it. Counts pure
+    // zeros (audio session muted), not just "below threshold" (real quiet).
+    if (!recording) {
+      if (rms < DEAD_MIC_RMS) {
+        deadMicFrames++;
+        if (deadMicFrames >= DEAD_MIC_FRAMES) {
+          deadMicFrames = 0;
+          console.warn("[audio] dead mic detected — forcing reset");
+          forceMicReset("dead-mic detector").catch(() => {});
+          return;
+        }
+      } else {
+        deadMicFrames = 0;
+      }
+    }
 
     if (!recording) {
       // Adapt the noise floor only when we're below threshold (clearly
@@ -1092,6 +1139,45 @@ function cleanForTTS(s) {
     .trim();
 }
 
+// Centralized "Claude finished speaking → your turn" transition. This is the
+// single point where every audio-session and VAD invariant gets re-asserted
+// after TTS, so future bugs in this region have one place to live instead of
+// being smeared across sendTurn, doMute, doUnmute, openMic, and ensureMic-
+// ClosedForSpeech.
+//
+// The critical step is prepareAudioSessionForMic — TTS forced the iOS audio
+// session into "playback", which silently mutes the still-open mic stream.
+// Without flipping back, the VAD reads zeros and Jason's voice goes nowhere.
+async function handoffToListening() {
+  console.log("[handoff] TTS done, restoring mic for listening");
+  // Stale drip/chime cleanup (defense in depth — runTTSQueue's polling could
+  // theoretically leave drip on if it raced the streamDone signal).
+  stopDripping();
+
+  // Flip the iOS audio session BEFORE doing anything else. Skipping this is
+  // what historically left Jason saying "it can't hear me" after a turn.
+  prepareAudioSessionForMic();
+  // Give iOS a beat to honor the session change. Without this, the next VAD
+  // tick can fire before the session actually flips, reading zeros.
+  await new Promise((r) => setTimeout(r, 80));
+
+  // openMic short-circuits if micStream exists, but it's the right entry
+  // point if we somehow lost the stream during TTS (background, errors).
+  const ok = await openMic();
+  if (!ok) return;
+
+  if (muted) {
+    setState("muted");
+    startQueueListening();
+    playReadyChime();
+    startReadyChime();
+    return;
+  }
+  startVoiceLoop();
+  playReadyChime();
+  startReadyChime();
+}
+
 async function sendTurn(userText) {
   setState("thinking");
   startDripping();
@@ -1224,21 +1310,7 @@ async function sendTurn(userText) {
   currentAssistantLine = null;
 
   if (state === "idle") return;
-  const reopened = await openMic();
-  if (!reopened) return;
-  // Make absolutely sure the drip is off before announcing "your turn" —
-  // runTTSQueue's polling loop or any race could have left it running.
-  stopDripping();
-  if (muted) {
-    setState("muted");
-    startQueueListening();
-    playReadyChime(); // even when muted, signal "I'm done, your turn"
-    startReadyChime(); // recurring 30s reminder while he's still muted
-    return;
-  }
-  startVoiceLoop();
-  playReadyChime();
-  startReadyChime();
+  await handoffToListening();
 
   // Drain anything the user said while we were busy. The recursive sendTurn
   // inside processTranscript will itself drain the rest, so a single shift is
