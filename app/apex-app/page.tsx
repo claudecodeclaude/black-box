@@ -34,6 +34,12 @@ const home: HomeItem[] = [
         description: "Bi-weekly Reddit topic scan for neuropathy, sciatica, and disc/back pain — with video hooks and ad ideas per topic.",
         alertId: "reddit-ads",
       },
+      {
+        kind: "tile",
+        href: "/apex/office-texts",
+        name: "Office Texts",
+        description: "Inbound SMS to the office landline via Twilio, also forwarded into Go High Level. Replaces Dial My Calls.",
+      },
     ],
   },
 ];
