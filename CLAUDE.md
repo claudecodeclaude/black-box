@@ -14,16 +14,17 @@ When Jason says "update reddit ads" (usually via the red UPDATE banner → ttyd 
 
 ### 1. Preflight
 
-- Confirm `.env.local` exists with the four Reddit creds: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USERNAME`, `REDDIT_PASSWORD`. If missing, stop and ask Jason to paste them.
+- The scraper uses Reddit's public `.json` endpoints — no OAuth, no creds needed. (Reddit denied our API access in April 2026 and never responded to the resubmission.)
 - Check `data/reddit-corpus/index.json` — if it doesn't exist or is empty, this is a **bootstrap** run. Otherwise **incremental**.
+- Public-endpoint cap is ~10 req/min; bootstrap takes hours, incremental takes ~1-3 hours.
 
 ### 2. Scrape
 
 ```bash
-# Bootstrap (first run only — takes 1–2 hours):
+# Bootstrap (first run only — takes many hours on the public-endpoint rate limit):
 npm run reddit:bootstrap
 
-# Incremental (every subsequent run — ~20–40 min):
+# Incremental (every subsequent run — ~1-3 hours):
 npm run reddit:incremental
 ```
 

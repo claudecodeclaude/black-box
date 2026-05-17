@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "reddit:test": "tsx scripts/fetch-reddit.ts --test",
-    "reddit:bootstrap": "tsx scripts/fetch-reddit.ts --bootstrap",
-    "reddit:incremental": "tsx scripts/fetch-reddit.ts --incremental",
+    "reddit:test": "NODE_EXTRA_CA_CERTS=/opt/homebrew/etc/ca-certificates/cert.pem tsx scripts/fetch-reddit.ts --test",
+    "reddit:bootstrap": "NODE_EXTRA_CA_CERTS=/opt/homebrew/etc/ca-certificates/cert.pem tsx scripts/fetch-reddit.ts --bootstrap",
+    "reddit:incremental": "NODE_EXTRA_CA_CERTS=/opt/homebrew/etc/ca-certificates/cert.pem tsx scripts/fetch-reddit.ts --incremental",
     "reddit:export-apex": "tsx scripts/export-reddit-ads-to-apex.mjs"
   },
   "dependencies": {

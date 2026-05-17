@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Reddit scraper for the Reddit Ads pipeline.
+// Reddit scraper for the Reddit Ads pipeline — public .json endpoints, no OAuth.
 //
 //   npx tsx scripts/fetch-reddit.ts --test          # 5 posts for one keyword, one sub
 //   npx tsx scripts/fetch-reddit.ts --bootstrap     # wide initial pull
 //   npx tsx scripts/fetch-reddit.ts --incremental   # new posts + comments in last 14 days
 //
-// Requires in .env.local:
-//   REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USERNAME, REDDIT_PASSWORD
-//   REDDIT_USER_AGENT (optional, defaults to black-box-ads-scrape/0.1)
+// Reddit denied our API access in April 2026 and never responded to the
+// resubmission, so this runs against www.reddit.com/<path>.json with no auth.
+// Only a unique User-Agent is required. Rate-limited at ~10 req/min per
+// Reddit's documented unauthenticated cap; bootstrap takes hours, incremental
+// takes ~1-3 hours instead of the 30 min an OAuth client would.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -16,40 +18,19 @@ import {
   targetSubreddits,
 } from "../app/apex/reddit-ads/keywords";
 
-// ---- env ---------------------------------------------------------------------
-
-function loadEnvLocal() {
-  const envPath = path.resolve(".env.local");
-  if (!fs.existsSync(envPath)) return;
-  for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (!m) continue;
-    const [, key, rawValue] = m;
-    const value = rawValue.replace(/^['"]|['"]$/g, "");
-    if (!process.env[key]) process.env[key] = value;
-  }
-}
-loadEnvLocal();
-
-const CLIENT_ID = required("REDDIT_CLIENT_ID");
-const CLIENT_SECRET = required("REDDIT_CLIENT_SECRET");
-const USERNAME = required("REDDIT_USERNAME");
-const PASSWORD = required("REDDIT_PASSWORD");
-const USER_AGENT = process.env.REDDIT_USER_AGENT || "black-box-research/0.1";
-
-function required(key: string): string {
-  const v = process.env[key];
-  if (!v) {
-    console.error(`Missing ${key} in .env.local`);
-    process.exit(1);
-  }
-  return v;
-}
+// Reddit's recommended User-Agent format: <platform>:<app>:<version> (by /u/<user>)
+// Sending something else still works but increases the chance of being
+// throttled or shadow-blocked as generic scraper traffic.
+const USER_AGENT =
+  process.env.REDDIT_USER_AGENT ||
+  "node:black-box-research:0.2 (by /u/Chance_Awareness_513)";
 
 // ---- rate limit --------------------------------------------------------------
 
 let lastCall = 0;
-const MIN_INTERVAL_MS = 1100; // ~55 req/min, under Reddit's 100/min cap
+// Reddit's documented unauthenticated cap is 10 req/min. 6500ms gives us ~9/min
+// with a safety margin so a burst of retries doesn't push us over.
+const MIN_INTERVAL_MS = 6500;
 
 async function throttle() {
   const elapsed = Date.now() - lastCall;
@@ -63,43 +44,6 @@ function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
 }
 
-// ---- auth --------------------------------------------------------------------
-
-type Token = { accessToken: string; expiresAt: number };
-let token: Token | null = null;
-
-async function getToken(): Promise<string> {
-  if (token && token.expiresAt > Date.now() + 60_000) return token.accessToken;
-
-  const basic = Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
-  const res = await fetch("https://www.reddit.com/api/v1/access_token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basic}`,
-      "User-Agent": USER_AGENT,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "password",
-      username: USERNAME,
-      password: PASSWORD,
-    }).toString(),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Auth failed: ${res.status} ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as {
-    access_token: string;
-    expires_in: number;
-  };
-  token = {
-    accessToken: data.access_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  };
-  return token.accessToken;
-}
-
 // ---- api ---------------------------------------------------------------------
 
 async function redditGet<T = any>(
@@ -107,22 +51,16 @@ async function redditGet<T = any>(
   params: Record<string, string | number | undefined> = {}
 ): Promise<T> {
   await throttle();
-  const at = await getToken();
-  const url = new URL(`https://oauth.reddit.com${endpoint}`);
+  const url = new URL(`https://www.reddit.com${endpoint}`);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined) url.searchParams.set(k, String(v));
   }
   url.searchParams.set("raw_json", "1");
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${at}`,
-      "User-Agent": USER_AGENT,
-    },
-  });
+  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
 
   if (res.status === 429) {
-    const retry = Number(res.headers.get("retry-after") ?? "10");
+    const retry = Number(res.headers.get("retry-after") ?? "30");
     console.warn(`rate limited, sleeping ${retry}s`);
     await sleep(retry * 1000);
     return redditGet<T>(endpoint, params);
