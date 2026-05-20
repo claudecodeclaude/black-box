@@ -138,6 +138,33 @@ Commit message should include:
 
 One short summary: how many posts scraped, how many new topics, how many misspellings auto-added, how many candidates now waiting for his review. The Reddit Ads view is now inside Apex App at https://jasons-mac-mini-1.taile58089.ts.net:7686/apps/reddit-ads/ (login-gated).
 
+## Runbook: `setup sales calls`
+
+When Jason says "setup sales calls" / "set up sales calls" / "what do I need to do for sales calls" — he is at his Mac Mini for the first-time install. Walk him through `scripts/sales-calls/SETUP.md` **step by step, interactively**, doing every step you can on his behalf rather than just dumping the doc at him.
+
+Concretely:
+
+1. **Detect current state first.** Check whether the service is already running:
+   ```bash
+   launchctl print gui/$UID/com.jason.sales-calls >/dev/null 2>&1 && echo RUNNING || echo NOT_INSTALLED
+   curl -sk https://jasons-mac-mini-1.taile58089.ts.net:7687/api/health || true
+   ```
+   Skip steps that are already done.
+
+2. **Pick a bearer token** if one isn't set yet: `openssl rand -hex 32`. Hold the value in the conversation — Jason will need it in two places (the sales-calls plist and the Apex App plist).
+
+3. **Write the launchd plist** to `~/Library/LaunchAgents/com.jason.sales-calls.plist` using the template in `scripts/sales-calls/SETUP.md` with the token substituted in. Confirm `SC_CERT` / `SC_KEY` paths match the certs the other Apex services use (look at `~/Library/LaunchAgents/com.jason.apex-app.plist` for reference if unsure).
+
+4. **Bootstrap the service** with `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.jason.sales-calls.plist`, then verify with the `/api/health` curl.
+
+5. **Update Apex App env vars**: edit `~/Library/LaunchAgents/com.jason.apex-app.plist` to add `APEX_SC_HELPER` and `APEX_SC_TOKEN` (same token), then `launchctl kickstart -k gui/$UID/com.jason.apex-app`. See [[project-launchd-services]] — Apex App auto-respawns but does **not** auto-reload after edits.
+
+6. **Smoke-test the ingest endpoint** with the curl from SETUP.md ("Fake ingest"), then load `https://jasons-mac-mini-1.taile58089.ts.net:7686/apps/sales-calls/` and confirm the test record shows up as pending.
+
+7. **Walk him through the iPhone Shortcuts** ("Send Sales Call" and "Add Thoughts") from SETUP.md. Jason builds these on his phone — you can't create them for him, but read the steps to him one at a time and wait for confirmation between each.
+
+Save the bearer token somewhere recoverable (1Password or similar) before ending — he'll need it for the Shortcut and any future re-installs.
+
 ## Runbook: `process sales calls`
 
 When Jason says "process sales calls", walk every pending NPE prospect call that landed from his iPhone Shortcut, extract the structured notes per the locked schema, and save them next to each record so they show up in the Apex App for his review and push to NPE.
