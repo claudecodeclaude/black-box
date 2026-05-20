@@ -138,6 +138,58 @@ Commit message should include:
 
 One short summary: how many posts scraped, how many new topics, how many misspellings auto-added, how many candidates now waiting for his review. The Reddit Ads view is now inside Apex App at https://jasons-mac-mini-1.taile58089.ts.net:7686/apps/reddit-ads/ (login-gated).
 
+## Runbook: `process sales calls`
+
+When Jason says "process sales calls", walk every pending NPE prospect call that landed from his iPhone Shortcut, extract the structured notes per the locked schema, and save them next to each record so they show up in the Apex App for his review and push to NPE.
+
+These are warm inbound calls (doctors who already applied via FB ads). **Office/contact info is NOT extracted** — NPE already has it from the application. **Cash-based is the default** for every NPE client — don't note it.
+
+### 1. Find the pending records
+
+Records live at `data/sales-calls/<id>/`, each with a `meta.json`. Process every record where `meta.status === "pending"`. Order oldest-first by `createdAt`.
+
+For each one, read `meta.json` for the doctor's name and read `transcript.txt` (Apple's auto-generated transcript with `Doctor: <name>` already pinned at the top by the helper).
+
+### 2. Extract per the schema
+
+Produce a JSON object with exactly these keys. Use `""` or `[]` when something didn't come up — don't invent. Preserve verbatim language for quotes where possible.
+
+```json
+{
+  "doctorName": "<re-emit for safety>",
+  "credentials": "DC | MD | DO | NP | other — verbatim if mentioned",
+  "treatingNeuropathy": "currently treating actively | curious about adding | <short detail>",
+  "protocols": "Class IV laser, ATP, nerve regen, etc. — whatever they mentioned",
+  "neuropathyProgramPrice": "what they charge for a full program, verbatim if quoted",
+  "cashHighTicketExperience": "experience selling cash-based high-ticket — what they've sold, how it's gone",
+  "capacityForNewPatients": "how many new neuropathy patients they could absorb",
+  "staffForLeadFlow": "do they have the staff to handle inbound leads from NPE — front desk, intake, etc.",
+  "currentNeuropathyAds": "advertising for neuropathy now, where, and how it's going",
+  "adAgencyPainPoints": "main pain points / dislikes / concerns / disappointments — especially from past ad agencies",
+  "objections": ["each objection raised on this call as its own string"],
+  "decisionMakers": "anyone else involved in the decision (spouse, partner, office manager) — or 'sole decision-maker'",
+  "whatTheyWant": "what they're hoping for in an ad agency or lead-gen partner",
+  "personal": "family, hobbies, alma mater, anything to remember for rapport on the next call",
+  "nextSteps": "what was agreed for follow-up — date/time, materials to send, demo scheduled, etc.",
+  "redFlags": "anything that might make NPE not want to onboard them (compliance, lawsuits, tone, prior bad behavior)"
+}
+```
+
+### 3. Save the extraction back to the helper
+
+POST it to the sales-calls service so `meta.status` flips to `extracted` and `extracted.json` is written atomically. `SC_TOKEN` is the same bearer token configured on the launchd plist and used by the iPhone Shortcuts.
+
+```bash
+curl -sS -X POST "https://jasons-mac-mini-1.taile58089.ts.net:7687/api/records/<id>/extracted" \
+  -H "Authorization: Bearer $SC_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"extracted": { ... }}'
+```
+
+### 4. Report back to Jason
+
+One short summary: how many records processed, doctor names, any that were short or unclear and might need a re-listen. The Sales Calls view inside Apex App at https://jasons-mac-mini-1.taile58089.ts.net:7686/apps/sales-calls/ (login-gated) now shows them ready to push to NPE.
+
 ## Conventions
 
 - **Free path only**: never call the Anthropic API for this project. All LLM work runs in this Claude Code session (Jason pays for Max; he doesn't pay for API).

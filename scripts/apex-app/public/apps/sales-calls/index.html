@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Sales Calls · Apex App</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/apps/sales-calls/style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a href="/" class="brand small">← Apex App</a>
+      </header>
+      <section class="page">
+        <h2>Sales Calls</h2>
+        <p class="tagline">
+          Neuropathy Profit Engine prospect calls. Records arrive from the iPhone Shortcut.
+          After you run the <code>process sales calls</code> command in Claude Code Terminal,
+          extracted notes show up here for review and push to NPE.
+        </p>
+
+        <div class="row toolbar">
+          <button id="refreshBtn" class="primary">Refresh</button>
+          <span id="status" class="muted small"></span>
+        </div>
+
+        <div id="error" class="error" hidden></div>
+
+        <div id="records" class="records"></div>
+      </section>
+    </main>
+    <script src="/apps/sales-calls/app.js?v=20260520-1"></script>
+  </body>
+</html>

@@ -27,3 +27,7 @@ next-env.d.ts
 
 # cleaning app local fallback store (prod uses Vercel KV)
 /data/cleaning-state.json
+
+# sales call recordings, transcripts, and extracted notes (sensitive,
+# Mac-Mini-only — never committed)
+/data/sales-calls/

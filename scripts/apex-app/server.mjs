@@ -406,6 +406,13 @@ async function handlePasskeyDelete(req, res, id) {
 const TM_HELPER_BASE = process.env.APEX_TM_HELPER ||
   "https://jasons-mac-mini-1.taile58089.ts.net:7685";
 
+// Sales Calls helper (proxied for the /apps/sales-calls/ page so the browser
+// stays same-origin and inherits the passkey session). The helper enforces a
+// bearer token on its own write endpoints; we forward it here.
+const SC_HELPER_BASE = process.env.APEX_SC_HELPER ||
+  "https://jasons-mac-mini-1.taile58089.ts.net:7687";
+const SC_HELPER_TOKEN = process.env.APEX_SC_TOKEN || "";
+
 async function readJsonBody(req, maxBytes = 2 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -565,6 +572,71 @@ async function handleTestimonialTranscribeUrl(req, res) {
   }
 }
 
+// --- Sales Calls proxy (auth-required) -------------------------------------
+// Records, audio, and extracted notes live on the sales-calls helper service.
+// We proxy GETs and the push-to-NPE POST through this auth-gated server so the
+// page never has to talk cross-origin or hold a bearer token in the browser.
+
+function scAuthHeaders() {
+  return SC_HELPER_TOKEN
+    ? { Authorization: `Bearer ${SC_HELPER_TOKEN}` }
+    : {};
+}
+
+async function handleSalesCallsList(req, res) {
+  if (!requireAuth(req, res)) return;
+  try {
+    const upstream = await fetch(`${SC_HELPER_BASE}/api/records`, {
+      headers: scAuthHeaders(),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) return sendJson(res, upstream.status, { error: text || `HTTP ${upstream.status}` });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(text);
+  } catch (e) {
+    log(`sales-calls list error: ${e.message || e}`);
+    sendJson(res, 502, { error: `Can't reach sales-calls helper. ${e.message || e}` });
+  }
+}
+
+async function handleSalesCallsGet(req, res, id) {
+  if (!requireAuth(req, res)) return;
+  if (!/^[A-Za-z0-9\-]+$/.test(id)) return sendJson(res, 400, { error: "bad id" });
+  try {
+    const upstream = await fetch(`${SC_HELPER_BASE}/api/records/${encodeURIComponent(id)}`, {
+      headers: scAuthHeaders(),
+    });
+    const text = await upstream.text();
+    if (!upstream.ok) return sendJson(res, upstream.status, { error: text || `HTTP ${upstream.status}` });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(text);
+  } catch (e) {
+    log(`sales-calls get error: ${e.message || e}`);
+    sendJson(res, 502, { error: `Can't reach sales-calls helper. ${e.message || e}` });
+  }
+}
+
+async function handleSalesCallsPushToNpe(req, res, id) {
+  const user = requireAuth(req, res);
+  if (!user) return;
+  if (!/^[A-Za-z0-9\-]+$/.test(id)) return sendJson(res, 400, { error: "bad id" });
+  try {
+    const upstream = await fetch(
+      `${SC_HELPER_BASE}/api/records/${encodeURIComponent(id)}/push-to-npe`,
+      { method: "POST", headers: scAuthHeaders() }
+    );
+    const text = await upstream.text();
+    if (upstream.ok) {
+      logAudit({ userId: user.id, action: "sales-call.push-to-npe", details: { id } });
+    }
+    res.writeHead(upstream.status, { "Content-Type": "application/json" });
+    res.end(text);
+  } catch (e) {
+    log(`sales-calls push error: ${e.message || e}`);
+    sendJson(res, 502, { error: `Can't reach sales-calls helper. ${e.message || e}` });
+  }
+}
+
 // --- Static + routing -------------------------------------------------------
 
 function serveStatic(req, res) {
@@ -638,6 +710,17 @@ const handler = async (req, res) => {
         if (req.method === "DELETE") return handleTestimonialDelete(req, res, n);
       }
     }
+    // Sales Calls proxy
+    if (req.method === "GET" && url === "/api/sales-calls/records") return handleSalesCallsList(req, res);
+    {
+      const m = url.match(/^\/api\/sales-calls\/records\/([A-Za-z0-9\-]+)$/);
+      if (m && req.method === "GET") return handleSalesCallsGet(req, res, m[1]);
+    }
+    {
+      const m = url.match(/^\/api\/sales-calls\/records\/([A-Za-z0-9\-]+)\/push-to-npe$/);
+      if (m && req.method === "POST") return handleSalesCallsPushToNpe(req, res, m[1]);
+    }
+
     // Sub-apps under /apps/* are gated behind login. PHI-bearing apps live
     // here (testimonials, eventually patient records). Unauthenticated
     // requests bounce to the login screen.
