@@ -23,6 +23,10 @@ let stateChangedAt = Date.now();
 let currentTurn = null; // AbortController for /api/turn
 let wakeLock = null;
 let muted = false; // mic paused — call stays alive, nothing is transcribed
+// True when the current mute was triggered by commitSendBuffer (auto-mute for
+// Claude's turn), not by Jason. handoffToListening auto-unmutes in that case
+// so Jason doesn't have to tap the button or say "unmute" while driving.
+let autoMutedForTurn = false;
 
 // Queue of transcripts captured while Claude was busy (thinking/transcribing).
 // Drained once the turn completes and listening resumes.
@@ -286,6 +290,9 @@ function playCommandBeep() {
 
 function doMute({ silent = false } = {}) {
   muted = true;
+  // Manual mute (button tap or voice command) clears the auto-flag so the
+  // next handoff respects Jason's intent and stays muted.
+  if (!silent) autoMutedForTurn = false;
   muteBtn.setAttribute("aria-pressed", "true");
   muteBtn.textContent = "unmute mic";
   if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
@@ -311,6 +318,7 @@ function doMute({ silent = false } = {}) {
 
 function doUnmute() {
   muted = false;
+  autoMutedForTurn = false;
   muteBtn.setAttribute("aria-pressed", "false");
   muteBtn.textContent = "mute mic";
   playCommandBeep();
@@ -369,6 +377,7 @@ function doClose() {
   playCommandBeep();
   setState("idle");
   muted = false;
+  autoMutedForTurn = false;
   muteBtn.setAttribute("aria-pressed", "false");
   muteBtn.textContent = "mute mic";
   queuedTurns = [];
@@ -1067,8 +1076,10 @@ function commitSendBuffer() {
   committedLine.classList.remove("pending");
   setLineText(committedLine, finalText);
   // Auto-mute for the duration of Claude's turn so background noise isn't
-  // picked up. Jason resumes with the voice "unmute" command.
+  // picked up. handoffToListening auto-unmutes as soon as Claude finishes,
+  // so Jason doesn't have to tap or say "unmute" while driving.
   doMute({ silent: true });
+  autoMutedForTurn = true;
   sendTurn(finalText).catch((e) => console.warn("sendTurn failed", e));
 }
 
@@ -1166,6 +1177,18 @@ async function handoffToListening() {
   const ok = await openMic();
   if (!ok) return;
 
+  // Auto-unmute path: if the mute came from commitSendBuffer (not from Jason),
+  // pop the mic open so he can keep talking without tapping or saying anything.
+  if (muted && autoMutedForTurn) {
+    autoMutedForTurn = false;
+    muted = false;
+    muteBtn.setAttribute("aria-pressed", "false");
+    muteBtn.textContent = "mute mic";
+    startVoiceLoop();
+    playReadyChime();
+    startReadyChime();
+    return;
+  }
   if (muted) {
     setState("muted");
     startQueueListening();
@@ -1406,6 +1429,7 @@ stopBtn.addEventListener("click", () => {
 
   setState("idle");
   muted = false;
+  autoMutedForTurn = false;
   muteBtn.setAttribute("aria-pressed", "false");
   muteBtn.textContent = "mute mic";
   if (sendTimer) { clearTimeout(sendTimer); sendTimer = null; }
