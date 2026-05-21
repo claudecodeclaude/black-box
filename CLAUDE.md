@@ -183,6 +183,7 @@ Produce a JSON object with exactly these keys. Use `""` or `[]` when something d
 
 ```json
 {
+  "summary": "one-liner at the top that captures three things in order: is this doctor a good fit for NPE, are they interested, and what's the next step. Examples: 'Strong fit, very interested, demo scheduled Thursday 3pm' or 'Marginal fit (low patient volume, no staff), lukewarm interest, sending materials and circling back in 2 weeks'",
   "doctorName": "<re-emit for safety>",
   "credentials": "DC | MD | DO | NP | other — verbatim if mentioned",
   "treatingNeuropathy": "currently treating actively | curious about adding | <short detail>",

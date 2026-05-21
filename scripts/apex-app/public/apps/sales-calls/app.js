@@ -104,6 +104,10 @@ async function toggleRecord(el, id) {
 }
 
 function renderRecordBody({ meta, transcript, extracted, thoughts }) {
+  const summaryHtml = extracted && extracted.summary
+    ? `<div class="summary-block">${escapeHtml(extracted.summary)}</div>`
+    : "";
+
   const fieldsHtml = extracted
     ? SCHEMA_FIELDS.map(([k, label]) => {
         const v = extracted[k];
@@ -116,6 +120,7 @@ function renderRecordBody({ meta, transcript, extracted, thoughts }) {
     : `<div class="muted small">Not extracted yet. Run <code>process sales calls</code> in the Claude Code Terminal to extract.</div>`;
 
   return `
+    ${summaryHtml}
     <div class="section">
       <h4>Extracted notes</h4>
       ${fieldsHtml}
