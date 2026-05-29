@@ -1,0 +1,54 @@
+.step { margin-top: 32px; }
+.step h3 { margin-bottom: 12px; }
+.step h4 { margin: 18px 0 8px; font-size: 14px; color: var(--muted, #888); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.drop-zone {
+  border: 2px dashed var(--border, #ccc);
+  border-radius: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  background: var(--surface, #fafafa);
+}
+.drop-zone.dragover { border-color: var(--accent, #2563eb); background: rgba(37, 99, 235, 0.05); }
+.drop-zone p { margin: 4px 0; }
+
+.file-list { list-style: none; padding: 0; margin: 12px 0; }
+.file-list li {
+  padding: 8px 12px;
+  background: var(--surface, #fafafa);
+  border: 1px solid var(--border, #eee);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px;
+}
+.file-list .remove { color: var(--accent, #b91c1c); cursor: pointer; background: none; border: none; }
+
+.field-group { margin-top: 20px; }
+.grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid.two label { display: flex; flex-direction: column; font-size: 12px; gap: 4px; }
+.grid.two input, .grid.two select {
+  padding: 8px 10px; border: 1px solid var(--border, #ccc); border-radius: 6px; font: inherit;
+}
+
+.rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.row-card {
+  display: grid; gap: 8px; padding: 8px;
+  border: 1px solid var(--border, #eee); border-radius: 8px; background: var(--surface, #fafafa);
+}
+.row-card.dx { grid-template-columns: 120px 1fr auto; }
+.row-card.svc { grid-template-columns: 100px 80px 60px 100px 120px auto; }
+.row-card input { padding: 6px 8px; border: 1px solid var(--border, #ccc); border-radius: 4px; font: inherit; font-size: 13px; }
+.row-card .del { background: none; border: none; color: var(--accent, #b91c1c); cursor: pointer; }
+
+.toolbar { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+
+.preview {
+  width: 100%; height: 70vh; margin-top: 12px;
+  border: 1px solid var(--border, #ccc); border-radius: 8px; background: white;
+}
+
+@media (max-width: 640px) {
+  .grid.two { grid-template-columns: 1fr; }
+  .row-card.svc { grid-template-columns: 1fr 1fr; }
+}

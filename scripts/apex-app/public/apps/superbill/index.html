@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Superbill Creator · Apex App</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/apps/superbill/style.css" />
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a href="/" class="brand small">← Apex App</a>
+      </header>
+
+      <section class="page">
+        <h2>Superbill Creator</h2>
+        <p class="tagline">
+          Drop in patient documents, review the extracted fields, then export a
+          superbill formatted for the selected insurance company.
+        </p>
+
+        <!-- Step 1: drop zone -->
+        <section id="step-drop" class="step">
+          <h3>1. Drop documents</h3>
+          <div id="dropZone" class="drop-zone">
+            <p>Drag PDFs, images, or text files here</p>
+            <p class="muted small">or</p>
+            <input id="fileInput" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.txt" hidden />
+            <button id="pickBtn" class="primary" type="button">Choose files</button>
+          </div>
+          <ul id="fileList" class="file-list"></ul>
+          <div class="row toolbar">
+            <button id="extractBtn" class="primary" type="button" disabled>Extract fields →</button>
+          </div>
+        </section>
+
+        <!-- Step 2: editable extracted fields -->
+        <section id="step-review" class="step" hidden>
+          <h3>2. Review &amp; correct</h3>
+          <p class="muted small">
+            The model fills these in from your documents. Anything wrong, fix it before generating.
+          </p>
+
+          <div class="field-group">
+            <h4>Patient</h4>
+            <div class="grid two">
+              <label>Name <input data-path="patient.name" /></label>
+              <label>DOB <input data-path="patient.dob" type="date" /></label>
+              <label>Address <input data-path="patient.address" /></label>
+              <label>Phone <input data-path="patient.phone" /></label>
+              <label>Insurance company <input data-path="patient.insurance.company" /></label>
+              <label>Member ID <input data-path="patient.insurance.memberId" /></label>
+              <label>Group # <input data-path="patient.insurance.groupNumber" /></label>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <h4>Provider</h4>
+            <div class="grid two">
+              <label>Practice name <input data-path="provider.practice" /></label>
+              <label>Rendering provider <input data-path="provider.name" /></label>
+              <label>NPI <input data-path="provider.npi" /></label>
+              <label>Tax ID <input data-path="provider.taxId" /></label>
+              <label>Address <input data-path="provider.address" /></label>
+              <label>Phone <input data-path="provider.phone" /></label>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <h4>Encounter</h4>
+            <div class="grid two">
+              <label>Date of service <input data-path="encounter.date" type="date" /></label>
+              <label>Place of service <input data-path="encounter.pos" placeholder="11 = office" /></label>
+              <label>Referring provider <input data-path="encounter.referring" /></label>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <h4>Diagnoses</h4>
+            <div id="dxRows" class="rows"></div>
+            <button class="ghost-mini" type="button" id="addDx">+ Add diagnosis</button>
+          </div>
+
+          <div class="field-group">
+            <h4>Services</h4>
+            <div id="svcRows" class="rows"></div>
+            <button class="ghost-mini" type="button" id="addSvc">+ Add service</button>
+          </div>
+
+          <div class="field-group">
+            <h4>Totals</h4>
+            <div class="grid two">
+              <label>Total charges <input data-path="totals.charges" type="number" step="0.01" /></label>
+              <label>Paid by patient today <input data-path="totals.paid" type="number" step="0.01" /></label>
+            </div>
+          </div>
+
+          <div class="row toolbar">
+            <button id="backToDrop" class="ghost" type="button">← Back</button>
+            <button id="renderBtn" class="primary" type="button">Generate superbill →</button>
+          </div>
+        </section>
+
+        <!-- Step 3: output -->
+        <section id="step-output" class="step" hidden>
+          <h3>3. Export</h3>
+          <div class="row">
+            <label>
+              Template:
+              <select id="templateSelect">
+                <option value="default">Standard</option>
+                <!-- per-insurance variants will be added once we have samples -->
+              </select>
+            </label>
+            <button id="downloadBtn" class="primary" type="button">Download PDF</button>
+            <button id="backToReview" class="ghost" type="button">← Back</button>
+          </div>
+          <iframe id="preview" class="preview"></iframe>
+        </section>
+
+        <div id="error" class="error" hidden></div>
+      </section>
+    </main>
+    <script src="/apps/superbill/app.js?v=20260529-1"></script>
+  </body>
+</html>
